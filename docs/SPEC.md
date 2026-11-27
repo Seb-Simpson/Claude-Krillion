@@ -28,67 +28,75 @@ for genre research.
 
 - **Daily mode**: 7 prompts per day, identical for every player, reset at local midnight.
   Day number = days since epoch `2026-01-01` (local date).
-- **Timer**: 25 s per prompt. Timer starts when the prompt is shown.
+- **Read-in**: prompt is shown with a ~1.2 s "get ready" beat before the clock starts.
+- **Timer**: 25 s per prompt. A "Relaxed" setting removes the timer (no streak difference).
 - **Input**: one text field. On Enter:
-  - **accepted** → round ends, tier + points revealed.
-  - **near miss** (close to a valid answer but not confident) → NOT accepted, round continues,
-    timer keeps running. 1st near miss on a target: "So close — check your spelling".
+  - **accepted** → round ends, tier + points revealed (shows canonical spelling if corrected).
+  - **near miss** (close to a valid answer but not confident) → NOT accepted, does NOT cost a
+    strike, timer keeps running. 1st near miss on a target: "So close — check your spelling".
     2nd+ near miss on the same target: a masked hint is shown, e.g. `S P _ G H _ T T I`
-    (letters the player typed correctly in position are revealed; the answer itself is
-    never auto-filled). Player must type it themselves.
-  - **already used** (daily mode never repeats a prompt, but practice can) → n/a in v1.
-  - **not on list** → "Not on our list" shake; player may keep trying until time runs out.
+    (letters the player typed correctly in position are revealed; the answer is never
+    auto-filled). The player must type it themselves. This is the "correction without
+    giving the answer" system.
+  - **not on list** → "Not on our list" shake; costs 1 strike. **3 strikes** → round ends, 0 pts.
   - Empty input is ignored.
 - **Time out** → 0 points, tier `miss`.
 - **Pass** button → ends round with 0 points.
-- After each round: reveal card with the player's tier, points, and a short
-  "what others said" panel: 3 most common answers + 3 rarest answers from the list.
+- After each round: reveal card with the player's tier, points, and a "what others said"
+  panel: 3 most common answers, 3 rare picks, and the prompt's hand-picked best answer
+  ("the Outlier"). If the player hit a **decoy**, explain why it is a trap.
 - After 7 rounds: summary screen — total score, per-round tier strip, share button,
-  stats (played, win-streak, best, average, histogram), countdown to next puzzle.
+  stats (played, streak, best, average, histogram, per-category average), countdown to next puzzle.
 - **Practice mode** (unlimited): random prompts, same rules, no stats/streak impact.
 - **Archive**: replay any previous day (no streak impact).
 
 ## Rarity tiers (scoring.js owns the numbers)
 
-Each answer in the database carries `pop` = estimated % of ordinary people who
-would name it when asked the prompt (1–100). Tier is derived from `pop`:
+Rarity is curated (like word-frequency-seeded lists), not live: each answer in the
+database carries `pop` = estimated % of ordinary people who would name it when asked
+the prompt (1–100). Tier is derived from `pop`, with two special tiers:
 
-| id | Label | pop range | points | emoji |
+| id | Label | rule | points | emoji |
 |---|---|---|---|---|
-| `crowd` | Crowd Pleaser | ≥ 50 | 10 | ⬜ |
-| `common` | Common | 25–49 | 25 | 🟦 |
-| `uncommon` | Uncommon | 10–24 | 50 | 🟩 |
-| `rare` | Rare | 4–9 | 75 | 🟪 |
-| `outlier` | Outlier | ≤ 3 | 100 | 🟧 |
-| `miss` | Miss | — | 0 | ⬛ |
+| `crowd` | Crowd Pleaser | pop ≥ 50 | 10 | ⬜ |
+| `common` | Common | pop 25–49 | 25 | 🟦 |
+| `uncommon` | Uncommon | pop 10–24 | 45 | 🟩 |
+| `rare` | Rare | pop 4–9 | 65 | 🟨 |
+| `obscure` | Obscure | pop ≤ 3 | 85 | 🟪 |
+| `outlier` | Outlier | the prompt's hand-picked `gem` | 100 | 🟧 |
+| `decoy` | Decoy | listed in the prompt's `decoys` (the "famous obscure" answer everyone reaches for) | 5 | 🟫 |
+| `miss` | Miss | no valid answer | 0 | ⬛ |
 
-Max daily score 700.
+Max daily score 700. Precedence: gem > decoy > pop.
 
 ## Data format (database agent)
 
-`data/prompts.js` must `export const PROMPTS = [...]` (it may assemble from
-`data/categories/*.js`). Each prompt:
+`data/prompts.js` must `export const PROMPTS = [...]` and `export const CATEGORIES = [...]`,
+assembled from `data/categories/*.js` (one file per category, each
+`export default [ ...prompts ]`). Each prompt:
 
 ```js
 {
   id: "pasta-shapes",            // kebab-case, unique, stable forever
   prompt: "Name a pasta shape",  // shown to player
   category: "Food & Drink",      // one of CATEGORIES
+  gem: "Strozzapreti",           // the single most satisfying deep answer (must be in answers)
+  decoys: ["Orecchiette"],       // 0–2 "famous obscure" traps (must be in answers)
   answers: [
     // [canonicalName, pop, ...aliases]
     ["Spaghetti", 88],
     ["Penne", 55],
-    ["Orecchiette", 3, "orechiette"],
+    ["Orecchiette", 6, "orechiette"],
     ["Macaroni", 60, "elbow macaroni", "elbows"],
   ],
 }
 ```
 
-- Also `export const CATEGORIES = [...]` (string list).
 - Aliases are alternate valid names/spellings (US/UK spelling, abbreviations,
   common short forms). Do NOT add typos as aliases — the matcher handles typos.
-- `pop` should form a realistic long tail: a handful of very common answers,
-  many rare ones. Every prompt must have answers in every tier.
+- `pop` forms a realistic pyramid: ~4–8 crowd answers, ~6–10 common, then a long
+  tail; the bulk of answers are rare/obscure. Every prompt must have answers in
+  every pop tier. Lists should be as exhaustive as the category allows.
 
 ## Engine API (systems agent) — `js/engine/`
 
@@ -111,6 +119,7 @@ export function matchAnswer(input, index): MatchResult
 // scoring.js
 export const TIERS            // array of tier objects {id,label,min,max,points,emoji,color}
 export function tierForPop(pop): Tier
+export function tierForAnswer(answerName, prompt): Tier   // applies gem/decoy precedence
 export function tierById(id): Tier
 export const MAX_SCORE
 
@@ -129,24 +138,25 @@ export function createGame({ mode, day, prompts, roundMs = 25000 }): Game
 // game.current(): Prompt
 // game.submit(input, elapsedMs): { match: MatchResult, round?: RoundResult }
 // game.timeout(): RoundResult        game.pass(): RoundResult
+// game.strikes(): number  (wrong 'none' guesses this round; 3 ends the round)
 // game.next(): void                  game.totalScore(): number
-// game.reveal(promptIdx): { common: Answer[3], rare: Answer[3] }
+// game.reveal(promptIdx): { common: Answer[3], rare: Answer[3], gem: Answer, decoys: Answer[], total: number }
 // game.toJSON() / Game.fromJSON(obj, PROMPTS) — resume mid-game after reload
-// RoundResult: { promptId, input, answer|null, tierId, points, ms }
+// RoundResult: { promptId, input, answer|null, tierId, points, ms, endedBy:'accept'|'timeout'|'pass'|'strikes' }
 
 // storage.js
 export function loadStats(): Stats      // {played, streak, maxStreak, best, totalScore, histogram:{bucket:count}, lastDay}
 export function recordDaily(day, rounds, score): Stats
 export function saveInProgress(game) / loadInProgress(day) / clearInProgress()
-export function getSettings() / setSettings(patch)   // {sound:true, haptics:true, theme:'auto'|'light'|'dark', reducedMotion:false}
+export function getSettings() / setSettings(patch)   // {sound:true, haptics:true, theme:'auto'|'light'|'dark', reducedMotion:false, relaxed:false}
 export function getDayResult(day)                    // for archive
 
 // share.js
-export function shareText({ day, rounds, score }): string
+export function shareText({ day, rounds, score, url }): string
 //  e.g.
 //  Outlier #331 · 455/700
 //  🟧🟩⬜🟪🟦🟩⬛
-//  outlier.game
+//  <url, if given>
 ```
 
 ## Sound API (sound agent) — `js/audio/sound.js`
