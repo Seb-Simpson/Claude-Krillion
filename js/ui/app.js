@@ -3,6 +3,7 @@
 import { $, $$, esc, html, sleep, fmtDate, fmtCountdown, countUp, flash, toast, pct, reducedMotion, setReducedMotion } from './util.js';
 import { heroField, revealField, constellation, setTierRing } from './dots.js';
 import { ICON, openDialog, closeAll, howToPlay, statsDialog, statsPanel, settingsDialog, tierChip } from './dialogs.js';
+import * as fx from './fx.js';
 
 const ROUND_MS = 25000;
 const READ_IN_MS = 1200;
@@ -19,6 +20,14 @@ const BLURBS = {
   decoy: 'The clever answer everyone reaches for, so it isn’t rare at all.',
   miss: 'No points this round.',
 };
+
+// Near-miss "warmth" copy. Never reveals letters, length or the answer.
+const HEAT = {
+  hot: { level: 3, text: 'Scorching \u2014 you\u2019re one slip away' },
+  warm: { level: 2, text: 'Warm \u2014 check your spelling' },
+  tepid: { level: 1, text: 'Lukewarm \u2014 something\u2019s close' },
+};
+const FLAME = '<svg viewBox="0 0 16 20" aria-hidden="true"><path d="M8 1c.6 3.2 4.8 5 4.8 10.2A4.8 4.8 0 0 1 8 16a4.8 4.8 0 0 1-4.8-4.8c0-2.4 1.3-3.6 2.3-4.7.3 1.5 1 2.3 1.8 2.5C7 6.4 6.8 3.6 8 1z"/></svg>';
 
 let ctx;
 let screen;           // #screen element
@@ -368,7 +377,7 @@ function renderRound({ revealOnly = false } = {}) {
             </div>
             ${relaxed ? '' : `
             <div class="timer" role="timer" aria-live="off">
-              <svg viewBox="0 0 64 64" aria-hidden="true"><circle class="timer-track" cx="32" cy="32" r="28"/><circle class="timer-bar" cx="32" cy="32" r="28" pathLength="100"/></svg>
+              <svg viewBox="0 0 64 64" aria-hidden="true"><circle class="timer-track" cx="32" cy="32" r="28" pathLength="100"/><circle class="timer-bar" cx="32" cy="32" r="28" pathLength="100"/></svg>
               <span class="timer-num num">25</span>
               <span class="visually-hidden timer-sr"></span>
             </div>`}
@@ -378,8 +387,10 @@ function renderRound({ revealOnly = false } = {}) {
       </div>
       <div class="dock">
         <ul class="guesses" aria-label="Guesses not on the list"></ul>
-        <p class="feedback" aria-live="polite" id="feedback"><span class="ready">Get ready…</span></p>
-        <div class="mask" hidden></div>
+        <div class="fb-row">
+          <span class="heat" data-level="0" aria-hidden="true"><span class="heat-flame">${FLAME}</span><span class="heat-track"><i></i><i></i><i></i></span></span>
+          <p class="feedback" aria-live="polite" id="feedback"><span class="ready">Get ready…</span></p>
+        </div>
         <form class="answer-form" autocomplete="off" novalidate>
           <label class="visually-hidden" for="answer">Your answer to: ${esc(prompt.prompt)}</label>
           <input id="answer" class="answer" type="text" inputmode="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="go" maxlength="60" placeholder="Type an answer" aria-describedby="feedback">
@@ -397,11 +408,15 @@ function renderRound({ revealOnly = false } = {}) {
 
   const input = $('#answer', node);
   const form = $('.answer-form', node);
-  let lastLen = 0;
+  let lastLen = 0, k = 0;
   input.addEventListener('input', () => {
-    if (input.value.length > lastLen) sfx('type');
+    if (input.value.length > lastLen) {
+      sfx('type');
+      // Alternate two identical keyframes so the pop restarts without a reflow.
+      input.classList.remove(k ? 'k1' : 'k2'); input.classList.add(k ? 'k2' : 'k1'); k ^= 1;
+    }
     lastLen = input.value.length;
-    input.classList.remove('is-near');
+    input.classList.remove('is-near', 'is-reject');
   });
   form.addEventListener('submit', (e) => { e.preventDefault(); onSubmit(); });
   // Restore guesses that already cost a strike (resumed rounds).
@@ -448,7 +463,11 @@ function startClock(relaxed, offset = 0) {
         c.lastSec = sec;
         session.game.setElapsed?.(elapsed);
         num.textContent = String(sec);
-        if (sec <= 5 && sec > 0) { ring.classList.add('is-urgent'); sfx('tickUrgent'); }
+        if (sec <= 5 && sec > 0) {
+          ring.classList.add('is-urgent'); sfx('tickUrgent');
+          if (!reducedMotion()) ring.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.12)', offset: 0.18 }, { transform: 'scale(1)' }], { duration: 520, easing: 'ease-out' });
+          $('.play', screen)?.style.setProperty('--warmth', String((6 - sec) / 5));
+        }
         else if (sec <= 10 && sec > 0) { ring.classList.add('is-low'); sfx('tick'); }
         if (sec === 10 || sec === 5) sr.textContent = `${sec} seconds left`;
       }
@@ -472,11 +491,12 @@ function elapsedMs() {
 }
 
 /* ---------------- input handling ---------------- */
-function updateStrikes() {
+function updateStrikes({ crack = false } = {}) {
   const n = session.game.strikes();
   const el = $('.strikes', screen);
   if (!el) return;
   $$('i', el).forEach((pip, i) => pip.classList.toggle('on', i < n));
+  if (crack && n > 0) { const pip = $$('i', el)[n - 1]; if (pip) { flash(pip, 'crack'); fx.pop(pip, { from: 1.8, peak: 0.8, ms: 360 }); } }
   el.setAttribute('aria-label', `Strikes: ${n} of ${STRIKES}`);
 }
 
@@ -499,23 +519,11 @@ function onSubmit() {
   const m = res.match || { kind: 'none' };
 
   if (m.kind === 'accept' && res.round) {
-    sfx('submit');
-    haptic(15);
-    return endRound(res.round);
+    acceptFx(input, value, res.round);
+    return endRound(res.round, { delay: reducedMotion() ? 350 : 900, keepDock: true });
   }
   if (m.kind === 'near') {
-    const key = m.target?.name || '?';
-    session.near[key] = res.nearCount ?? (session.near[key] || 0) + 1;
-    sfx('near');
-    flash(input, 'is-near');
-    const hint = res.mask ?? m.mask;
-    if (session.near[key] >= 2 && hint) {
-      setFeedback('Closer. These are the letters you have right:', 'near');
-      showMask(hint);
-    } else {
-      setFeedback('So close \u2014 check your spelling', 'near');
-    }
-    input.setSelectionRange(input.value.length, input.value.length);
+    showHeat(input, res);
     return;
   }
   if (res.message === 'already-tried') {
@@ -524,16 +532,92 @@ function onSubmit() {
     input.select();
     return;
   }
-  // none
+  // none: a strike
   sfx('reject');
-  haptic([30, 40, 30]);
-  flash(input, 'shake');
+  haptic(fx.HAPTIC.reject);
+  fx.shake($('.answer-form', screen), { amp: 9, ms: 420 });
+  flash(input, 'is-reject');
+  fx.vignette(fx.cssVar('--urgent', '#c2410c'));
+  clearHeat();
   addGuessChip(value);
-  updateStrikes();
-  if (res.round) { setFeedback('Three strikes. Round over.', 'reject'); return endRound(res.round, { delay: 650 }); }
+  updateStrikes({ crack: true });
+  if (res.round) { setFeedback('Three strikes. Round over.', 'reject'); return endRound(res.round, { delay: 750 }); }
   const left = STRIKES - session.game.strikes();
   setFeedback(`Not on our list. ${left} ${left === 1 ? 'strike' : 'strikes'} left.`, 'reject');
   input.value = '';
+}
+
+/** Near miss: warmth gauge (tepid → warm → hot). No letters, no length, no answer. */
+function showHeat(input, res) {
+  const heat = HEAT[res.heat] ? res.heat : 'warm';
+  const { level, text } = HEAT[heat];
+  const closer = res.message === 'closer' || (res.nearCount || 0) >= 2;
+  const partial = res.message === 'partial';
+  const gauge = $('.heat', screen);
+  sfx('near');
+  haptic(10);
+  if (gauge) {
+    gauge.dataset.level = String(level);
+    gauge.dataset.heat = heat;
+    gauge.classList.add('is-on');
+    gauge.classList.toggle('is-flare', closer);
+    flash(gauge, 'heat-pulse');
+    if (closer && !reducedMotion()) {
+      const c = fx.center($('.heat-flame', gauge));
+      fx.burst(c.x, c.y, { colors: [fx.cssVar(`--heat-${heat}`), fx.cssVar('--heat-hot')], count: 10 + level * 4, speed: 3.2, spread: 1.4, gravity: -0.05, life: 700, size: 2.2 });
+    }
+  }
+  input.dataset.heat = heat;
+  flash(input, 'is-near');
+  let msg = partial ? 'Be more specific \u2014 that\u2019s only part of an answer' : text;
+  if (closer && !partial) msg += '. Still no strike.';
+  setFeedback(msg, 'near');
+  input.setSelectionRange(input.value.length, input.value.length);
+}
+
+function clearHeat() {
+  const gauge = $('.heat', screen);
+  if (gauge) { gauge.classList.remove('is-on', 'is-flare'); gauge.dataset.level = '0'; }
+  const input = $('#answer', screen);
+  if (input) delete input.dataset.heat;
+}
+
+/** The accept moment: squash, ghost word, hit-stop, colour flood, shockwave, sparks, +points. */
+function acceptFx(input, value, round) {
+  const tierId = round.tierId;
+  const rank = fx.rankOf(tierId);
+  const form = $('.answer-form', screen);
+  const color = fx.tierColor(tierId);
+  sfx('submit');
+  fx.press(form);
+  fx.ghostWord(input, value);
+  input.value = '';
+  input.placeholder = '';
+  clearHeat();
+  const hitStop = reducedMotion() ? 0 : 80;
+  setTimeout(() => {
+    if (!form.isConnected) return;
+    sfx(`accept-${tierId}`);
+    haptic(fx.HAPTIC[tierId] ?? 15);
+    const { x, y, r } = fx.center(form);
+    fx.flood(form, color, { scale: 0.8 + rank * 0.25 });
+    fx.shockwave(x, y, { color, r0: r.height / 2, r1: 90 + rank * 55, width: 2 + rank, dur: 520 + rank * 90 });
+    if (rank >= 4) fx.shockwave(x, y, { color, r0: 10, r1: 60 + rank * 40, width: 2, dur: 700, delay: 90, alpha: 0.6 });
+    const counts = { crowd: 8, decoy: 6, common: 14, uncommon: 22, rare: 34, obscure: 52, outlier: 84 };
+    const extra = tierId === 'outlier' ? [fx.tierColor('rare'), fx.tierColor('obscure'), '#ffffff'] : tierId === 'obscure' ? [fx.tierColor('outlier')] : [];
+    fx.burst(x, y - 4, {
+      colors: [color, color, ...extra], count: counts[tierId] ?? 10,
+      speed: 3.5 + rank * 1.3, spread: tierId === 'decoy' ? 1.2 : Math.PI * (1.1 + rank * 0.18),
+      gravity: tierId === 'decoy' ? 0.35 : 0.14, life: 700 + rank * 120, size: 2.6 + rank * 0.35,
+    });
+    const ptsColor = tierId === 'crowd' ? fx.cssVar('--ink-2') : color;
+    fx.floatText(x, r.top - 6, `+${round.points}`, ptsColor, { size: 36 + rank * 5 });
+    if (rank >= 4) fx.shake(screen.querySelector('.play'), { amp: rank === 5 ? 7 : 4, ms: 380, axis: 'xy' });
+    // progress dot fills with the tier colour and pops
+    const dot = $$('.pdot', screen)[session.game.state.roundIndex];
+    if (dot) { dot.style.setProperty('--c', `var(--t-${tierId})`); dot.classList.add('is-done'); dot.classList.remove('is-current'); fx.pop(dot, { peak: 1.8 }); }
+    setFeedback('', '');
+  }, hitStop);
 }
 
 function addGuessChip(text) {
@@ -542,22 +626,6 @@ function addGuessChip(text) {
   const li = document.createElement('li');
   li.textContent = text;
   ul.appendChild(li);
-}
-
-function showMask(mask) {
-  const el = $('.mask', screen);
-  if (!el || !mask) return;
-  // Mask: letters separated by one space, words by three ("S P _ G   B _ L").
-  const cells = mask.split('   ').flatMap((w, wi) => (wi ? ['/'] : []).concat(w.split(' ').filter(Boolean)));
-  el.hidden = false;
-  el.setAttribute('aria-label', `Hint: ${cells.map((c) => (c === '_' ? 'blank' : c === '/' ? 'space' : c)).join(', ')}`);
-  el.setAttribute('role', 'img');
-  el.innerHTML = cells.map((c, i) => {
-    if (c === '/' || c === ' ') return '<span class="tile tile-gap"></span>';
-    const blank = c === '_';
-    return `<span class="tile${blank ? ' tile-blank' : ''}" style="--i:${i}">${blank ? '' : esc(c)}</span>`;
-  }).join('');
-  flash(el, 'mask-in');
 }
 
 function onPass() {
@@ -574,14 +642,20 @@ function onTimeout() {
   try { round = session.game.timeout(); } catch (err) { console.error(err); return; }
   sfx('timeout');
   haptic(60);
+  const ring = $('.timer', screen);
+  if (ring) {
+    ring.classList.add('is-dead');
+    if (!reducedMotion()) ring.animate([{ transform: 'scale(1) rotate(0)' }, { transform: 'scale(1.22) rotate(-8deg)', offset: 0.2 }, { transform: 'scale(.9) rotate(4deg)', offset: 0.55 }, { transform: 'scale(1) rotate(0)' }], { duration: 460, easing: 'cubic-bezier(.3,.7,.3,1)' });
+  }
+  fx.vignette(fx.cssVar('--urgent', '#c2410c'));
   setFeedback('Time’s up.', 'reject');
   endRound(round, { delay: 500 });
 }
 
-async function endRound(round, { delay = 260 } = {}) {
+async function endRound(round, { delay = 260, keepDock = false } = {}) {
   stopClock();
   const input = $('#answer', screen);
-  if (input) { input.disabled = true; }
+  if (input) { if (keepDock) input.readOnly = true; else input.disabled = true; }
   $$('.dock button', screen).forEach((b) => { b.disabled = true; });
   saveProgress();
   await sleep(reducedMotion() ? 0 : delay);
@@ -673,33 +747,18 @@ function showReveal(round, { instant = false } = {}) {
     if (answer) sfx('reveal');
     await field.play({});
     resEl.classList.add('in');
-    if (answer) {
-      sfx(`accept-${round.tierId}`);
-      if (round.tierId === 'outlier' || round.tierId === 'obscure') sparkleScreen(round.tierId);
+    if (answer && field.dot?.isConnected) {
+      const rank = fx.rankOf(round.tierId);
+      const c = fx.center(field.dot);
+      const color = fx.tierColor(round.tierId);
+      fx.shockwave(c.x, c.y, { color, r0: 6, r1: 26 + rank * 9, width: 2, dur: 600 });
+      if (rank >= 3) fx.burst(c.x, c.y, { colors: [color, fx.tierColor('outlier')], count: 6 + rank * 4, speed: 2.4, life: 650, size: 2 });
+      if (instant) sfx(`accept-${round.tierId}`);
     }
     countUp(pts, round.points || 0, { ms: 500 });
     node.classList.add('done');
   };
   run();
-}
-
-function sparkleScreen(tierId) {
-  if (reducedMotion()) return;
-  const host = $('.rv-tier', screen);
-  if (!host) return;
-  const layer = document.createElement('div');
-  layer.className = 'sparkles';
-  layer.setAttribute('aria-hidden', 'true');
-  const n = tierId === 'outlier' ? 26 : 14;
-  for (let i = 0; i < n; i++) {
-    const s = document.createElement('i');
-    const a = Math.random() * Math.PI * 2;
-    const d = 60 + Math.random() * 120;
-    s.style.cssText = `--x:${Math.cos(a) * d}px;--y:${Math.sin(a) * d * 0.7 - 30}px;--r:${Math.random() * 360}deg;--d:${Math.random() * 160}ms;background:var(--t-${i % 3 === 0 ? 'outlier' : tierId})`;
-    layer.appendChild(s);
-  }
-  host.appendChild(layer);
-  setTimeout(() => layer.remove(), 1600);
 }
 
 function onNext() {
@@ -822,9 +881,19 @@ function renderSummary({ fresh }) {
 
   if (fresh) {
     const total = $('[data-total]', node);
-    sfx('complete', { score });
-    countUp(total, score, { ms: 1200 }).then(() => {
-      if (session?.streakUp) sfx('streak', { count: session.streakUp });
+    let lastStep = 0;
+    const dur = reducedMotion() ? 0 : 600 + Math.min(1100, score * 1.8);
+    countUp(total, score, {
+      ms: dur,
+      onStep: (v) => { const step = Math.floor(v / 60); if (step > lastStep) { lastStep = step; sfx('tick'); } },
+    }).then(() => {
+      sfx('complete', { score });
+      fx.pop($('.sum-score', node), { from: 1, peak: 1.07, ms: 420 });
+      const c = fx.center(total);
+      const colors = rounds.map((r) => fx.tierColor(r.tierId)).filter((_, i, a) => a.indexOf(_) === i);
+      fx.burst(c.x, c.y, { colors, count: 18 + Math.round(score / 9), speed: 5 + score / 140, life: 1100, size: 3 });
+      fx.shockwave(c.x, c.y, { color: fx.tierColor(score >= 420 ? 'outlier' : 'rare'), r0: 30, r1: 120 + score / 4, width: 3, dur: 800 });
+      if (session?.streakUp) setTimeout(() => sfx('streak', { count: session.streakUp }), 500);
     });
   }
 }

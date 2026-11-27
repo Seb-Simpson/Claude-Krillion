@@ -87,7 +87,7 @@ export function howToPlay(ctx) {
     <ul class="howto-rules">
       <li><span class="lad-dot" style="background:var(--t-decoy)"></span><span><b>${esc(decoy?.label || 'Decoy')} (${decoy?.points ?? 5} pts).</b> Some prompts hide the famous "obscure" answer that everyone reaches for when trying to be clever. It scores almost nothing.</span></li>
       <li><span class="strike-demo" aria-hidden="true"><i></i><i></i><i></i></span><span><b>Three strikes.</b> An answer that isn't on our list costs a strike. Three strikes end the round with ${miss?.points ?? 0} points.</span></li>
-      <li><span class="mask-demo" aria-hidden="true">SP_G</span><span><b>Typos are forgiven.</b> If you're close, we'll say "check your spelling" without costing a strike. Close again and we show the letters you got right. You still have to type it.</span></li>
+      <li><span class="heat heat-demo is-on" data-level="2" data-heat="warm" aria-hidden="true"><span class="heat-track"><i></i><i></i><i></i></span></span><span><b>Close calls are free.</b> Misspell a real answer and a heat gauge tells you how close you are, from lukewarm to scorching, without costing a strike. It never shows letters. Fix it and press Enter again.</span></li>
       <li><span class="timer-demo" aria-hidden="true">25</span><span><b>25 seconds a prompt.</b> Turn on Relaxed mode in Settings to play without the clock. Your streak counts either way.</span></li>
     </ul>
     <button class="btn btn-primary btn-block" data-close data-autofocus>Got it</button>`;

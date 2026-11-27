@@ -186,7 +186,7 @@ export function revealField(tierId, seed = 'x') {
       requestAnimationFrame(step);
     });
   }
-  return { svg, play };
+  return { svg, play, dot };
 }
 
 const easeInOut = (t) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
