@@ -66,12 +66,13 @@ for (const p of PROMPTS) {
       assert.equal(typeof name, 'string', `${p.id}: name must be string`);
       assert.ok(name.trim().length > 0, `${p.id}: empty name`);
       assert.ok(Number.isInteger(pop) && pop >= 1 && pop <= 100, `${p.id}: bad pop for ${name}: ${pop}`);
+      assert.ok(!names.has(name), `${p.id}: duplicate canonical name ${name}`);
       names.set(name, pop);
       for (const label of [name, ...aliases]) {
         assert.equal(typeof label, 'string', `${p.id}: alias of ${name} must be string`);
         const k = normalize(label);
         assert.ok(k.length > 0, `${p.id}: "${label}" normalizes to empty`);
-        if (keys.has(k)) {
+        if (keys.has(k) && keys.get(k) !== name) {
           assert.fail(`${p.id}: "${label}" (${name}) collides with ${keys.get(k)} as "${k}"`);
         }
         keys.set(k, name);

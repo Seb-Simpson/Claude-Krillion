@@ -109,7 +109,7 @@ export function statsDialog(ctx) {
 
 export function statsPanel(ctx, { highlight } = {}) {
   const s = safeStats(ctx);
-  const avg = s.played ? Math.round(s.totalScore / s.played) : 0;
+  const avg = s.average ?? (s.played ? Math.round(s.totalScore / s.played) : 0);
   const nums = [
     ['Played', s.played], ['Current streak', s.streak], ['Best streak', s.maxStreak],
     ['Best score', s.best], ['Average', avg],
@@ -119,12 +119,38 @@ export function statsPanel(ctx, { highlight } = {}) {
     <div class="stats-grid">${nums}</div>
     <h3 class="stats-sub">Score distribution</h3>
     ${hist}
+    ${tierBar(ctx, s.tiers)}
+    ${categoryTable(ctx, s)}
     ${s.played ? '' : '<p class="muted small">Finish a daily puzzle to start your record.</p>'}`;
+}
+
+function tierBar(ctx, tiers = {}) {
+  const order = [...ctx.ladder.map((t) => t.id), 'decoy', 'miss'];
+  const total = order.reduce((n, id) => n + (Number(tiers?.[id]) || 0), 0);
+  if (!total) return '';
+  const segs = order.filter((id) => tiers[id]).map((id) => {
+    const t = ctx.tier(id);
+    return `<span class="tb-seg" style="flex:${tiers[id]};background:var(--t-${id})" title="${esc(t?.label || id)}: ${tiers[id]}"></span>`;
+  }).join('');
+  const legend = order.filter((id) => tiers[id]).map((id) => `<li><span class="lad-dot" style="background:var(--t-${id})"></span>${esc(ctx.tier(id)?.label || id)} <span class="num">${tiers[id]}</span></li>`).join('');
+  return `<h3 class="stats-sub">Your answers by tier</h3>
+    <div class="tier-bar" role="img" aria-label="${order.filter((id) => tiers[id]).map((id) => `${ctx.tier(id)?.label}: ${tiers[id]}`).join(', ')}">${segs}</div>
+    <ul class="tier-legend" aria-hidden="true">${legend}</ul>`;
+}
+
+function categoryTable(ctx, s) {
+  let avgs = {};
+  try { avgs = ctx.storage.categoryAverages ? ctx.storage.categoryAverages(s) : {}; } catch { avgs = {}; }
+  const rows = Object.entries(avgs).sort((a, b) => b[1] - a[1]);
+  if (!rows.length) return '';
+  return `<h3 class="stats-sub">Average points by category</h3>
+    <ol class="hist cats">${rows.map(([cat, v]) => `
+      <li class="hist-row"><span class="hist-k">${esc(cat)}</span><span class="hist-bar"><span style="width:${Math.max(4, v)}%"></span></span><span class="hist-v num">${v}</span></li>`).join('')}</ol>`;
 }
 
 function safeStats(ctx) {
   let s = {};
-  try { s = ctx.storage.loadStats() || {}; } catch { /* ignore */ }
+  try { s = ctx.storage.loadStats(ctx.daily.dayNumber()) || {}; } catch { /* ignore */ }
   return { played: 0, streak: 0, maxStreak: 0, best: 0, totalScore: 0, histogram: {}, ...s };
 }
 
