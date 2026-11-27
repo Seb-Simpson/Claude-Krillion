@@ -31,7 +31,8 @@ export function openDialog(id, title, bodyHtml, { onClose, wide = false } = {}) 
   dlg.showModal();
   // Focus the first meaningful control rather than the close button where possible.
   const first = $('[data-autofocus]', dlg) || $('[data-close]', dlg);
-  first?.focus();
+  first?.focus({ preventScroll: true });
+  const body = $('.dialog-body', dlg); if (body) body.scrollTop = 0;
   // Explicit focus trap (some browsers let Tab escape to browser chrome).
   dlg.addEventListener('keydown', (e) => {
     if (e.key !== 'Tab') return;
@@ -86,7 +87,7 @@ export function howToPlay(ctx) {
     <ul class="howto-rules">
       <li><span class="lad-dot" style="background:var(--t-decoy)"></span><span><b>${esc(decoy?.label || 'Decoy')} (${decoy?.points ?? 5} pts).</b> Some prompts hide the famous "obscure" answer that everyone reaches for when trying to be clever. It scores almost nothing.</span></li>
       <li><span class="strike-demo" aria-hidden="true"><i></i><i></i><i></i></span><span><b>Three strikes.</b> An answer that isn't on our list costs a strike. Three strikes end the round with ${miss?.points ?? 0} points.</span></li>
-      <li><span class="mask-demo" aria-hidden="true">S P _ G</span><span><b>Typos are forgiven.</b> If you're close, we'll say "check your spelling" without costing a strike. Close again and we show the letters you got right. You still have to type it.</span></li>
+      <li><span class="mask-demo" aria-hidden="true">SP_G</span><span><b>Typos are forgiven.</b> If you're close, we'll say "check your spelling" without costing a strike. Close again and we show the letters you got right. You still have to type it.</span></li>
       <li><span class="timer-demo" aria-hidden="true">25</span><span><b>25 seconds a prompt.</b> Turn on Relaxed mode in Settings to play without the clock. Your streak counts either way.</span></li>
     </ul>
     <button class="btn btn-primary btn-block" data-close data-autofocus>Got it</button>`;
@@ -121,7 +122,7 @@ export function statsPanel(ctx, { highlight } = {}) {
     ${hist}
     ${tierBar(ctx, s.tiers)}
     ${categoryTable(ctx, s)}
-    ${s.played ? '' : '<p class="muted small">Finish a daily puzzle to start your record.</p>'}`;
+    ${s.played ? '' : '<p class="muted small stats-empty">Finish a daily puzzle to start your record.</p>'}`;
 }
 
 function tierBar(ctx, tiers = {}) {
@@ -173,7 +174,7 @@ function histogram(h = {}, highlight) {
 }
 
 function bucketLabel(k) {
-  if (/^\d+$/.test(k)) { const n = +k; return n >= 700 ? '700' : `${n}–${n + 99}`; }
+  if (/^\d+$/.test(k)) { const n = +k; return n >= 600 ? `${n}–700` : `${n}–${n + 99}`; }
   return k.replace('-', '–');
 }
 function bucketFor(keys, score) {
@@ -196,10 +197,10 @@ export function settingsDialog(ctx, onChange) {
         <legend class="setting-label">Theme</legend>
         <div class="seg" role="radiogroup">
           ${['auto', 'light', 'dark'].map((t) => `
-            <label><input type="radio" name="theme" value="${t}" ${theme === t ? 'checked' : ''}><span>${t === 'auto' ? 'Match device' : t[0].toUpperCase() + t.slice(1)}</span></label>`).join('')}
+            <label><input type="radio" name="theme" value="${t}" ${theme === t ? 'checked' : ''}><span>${t === 'auto' ? 'System' : t[0].toUpperCase() + t.slice(1)}</span></label>`).join('')}
         </div>
       </fieldset>
-      ${sw('sound', 'Sound', 'Clicks, ticks and a chime for every tier')}
+      ${sw('sound', 'Sound', 'Clicks, ticks and tier chimes')}
       ${sw('haptics', 'Vibration', 'On phones that support it')}
       ${sw('relaxed', 'Relaxed mode', 'No timer. Streaks still count.')}
       ${sw('reducedMotion', 'Reduce motion', 'Calmer animations')}

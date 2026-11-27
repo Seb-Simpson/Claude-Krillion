@@ -45,8 +45,8 @@ function legacyCopy(text) {
 
 /**
  * Share via the native share sheet (on touch devices, or when opts.preferShare) and fall back
- * to the clipboard. Resolves 'shared' | 'copied' | 'failed'. A user-cancelled share sheet
- * resolves 'failed' without copying.
+ * to the clipboard. Resolves 'shared' | 'copied' | 'cancelled' | 'failed'. A user-cancelled share sheet
+ * resolves 'cancelled' without copying.
  */
 export async function shareResult(text, { preferShare = prefersShareSheet() } = {}) {
   const nav = globalThis.navigator;
@@ -55,7 +55,7 @@ export async function shareResult(text, { preferShare = prefersShareSheet() } = 
       await nav.share({ text });
       return 'shared';
     } catch (err) {
-      if (err && err.name === 'AbortError') return 'failed';
+      if (err && err.name === 'AbortError') return 'cancelled';
       // otherwise fall through to clipboard
     }
   }

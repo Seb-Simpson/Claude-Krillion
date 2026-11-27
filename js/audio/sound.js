@@ -675,7 +675,10 @@ export function _meter() {
 // Auto-unlock on the first gesture, as a safety net if the app forgets to.
 if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
   const evts = ['pointerdown', 'keydown', 'touchend'];
-  const once = () => {
+  const once = (ev) => {
+    // Escape/modifier keys are not user activation in Chrome; wait for a real gesture.
+    if (ev && ev.type === 'keydown' && (ev.key === 'Escape' || ev.ctrlKey || ev.metaKey || ev.altKey
+      || ['Shift', 'Control', 'Alt', 'Meta', 'Tab'].includes(ev.key))) return;
     evts.forEach((e) => window.removeEventListener(e, once, true));
     unlock();
   };

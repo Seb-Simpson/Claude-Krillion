@@ -122,7 +122,7 @@ export function revealField(tierId, seed = 'x') {
     ringEls[id] = c;
     const label = LABELS[id] || id;
     const lx = cx + (isLast ? rr : (BOUNDS[i] + r) / 2);
-    const t = el('text', { x: lx, y: cy + 3.5, class: 'ring-label', 'text-anchor': 'middle', 'data-tier': id }, rings);
+    const t = el('text', { x: lx, y: cy + (i % 2 ? -5 : 11), class: 'ring-label', 'text-anchor': 'middle', 'data-tier': id }, rings);
     t.textContent = i === 0 ? '' : label;
   });
   const rand = rng(`crowd-${seed}`);

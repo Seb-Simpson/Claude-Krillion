@@ -25,6 +25,7 @@ let screen;           // #screen element
 let session = null;   // current game session
 let clock = null;     // running round clock
 let countdownTimer = null;
+let homeVisited = false;
 
 /* =================================================================== */
 /* Boot                                                                */
@@ -35,16 +36,23 @@ export function startApp(context) {
 
   // Tier colours + labels come from scoring.js at runtime.
   const root = document.documentElement;
-  for (const t of ctx.TIERS) if (t.color) root.style.setProperty(`--t-${t.id}`, t.color);
+  // 'miss' keeps a per-theme CSS grey so it stays visible on the dark background.
+  for (const t of ctx.TIERS) if (t.color && t.id !== 'miss') root.style.setProperty(`--t-${t.id}`, t.color);
   setTierRing(ctx.ladder.map((t) => t.id), Object.fromEntries(ctx.TIERS.map((t) => [t.id, t.label])));
 
   applySettings(ctx.settings());
   matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => applyTheme(ctx.settings().theme));
 
   // Sound: unlock on first gesture; a click sound on every button by default.
-  const unlock = () => { ctx.sound.unlock(); ctx.sound.setMuted(!ctx.settings().sound); };
-  addEventListener('pointerdown', unlock, { once: true, capture: true });
-  addEventListener('keydown', unlock, { once: true, capture: true });
+  const unlock = (e) => {
+    // Escape and bare modifiers aren't user activation, so the AudioContext would stay blocked.
+    if (e.type === 'keydown' && (e.key === 'Escape' || ['Shift', 'Control', 'Alt', 'Meta', 'Tab'].includes(e.key))) return;
+    ctx.sound.unlock(); ctx.sound.setMuted(!ctx.settings().sound);
+    removeEventListener('pointerdown', unlock, true);
+    removeEventListener('keydown', unlock, true);
+  };
+  addEventListener('pointerdown', unlock, true);
+  addEventListener('keydown', unlock, true);
   document.addEventListener('click', (e) => {
     const b = e.target.closest('button');
     if (b && !b.disabled && !b.hasAttribute('data-silent')) sfx('click');
@@ -141,7 +149,7 @@ function mount(node, { focus } = {}) {
   screen.replaceChildren(node);
   scrollTo(0, 0);
   screen.onclick = onScreenClick;
-  const f = focus ? $(focus, screen) : $('h1, h2', screen);
+  const f = focus === null ? null : focus ? $(focus, screen) : $('h1, h2', screen);
   if (f) { if (!f.hasAttribute('tabindex') && !/INPUT|BUTTON/.test(f.tagName)) f.setAttribute('tabindex', '-1'); f.focus({ preventScroll: true }); }
 }
 
@@ -228,14 +236,15 @@ function renderHome() {
         ${primary}
       </div>
       <ul class="menu">
-        ${menuRow('practice', 'Practice', 'Endless random prompts. No streak, no pressure.')}
+        ${menuRow('practice', 'Practice', 'Endless random prompts, no streak.')}
         ${menuRow('archive', 'Archive', 'Replay any past puzzle.')}
         ${menuRow('help', 'How to play', 'Rarity tiers, strikes and spelling help.')}
       </ul>
       <footer class="home-foot"><p>Seven prompts a day. New puzzle at midnight.</p></footer>
     </section>`);
   $('.hero-figure', node).appendChild(heroField());
-  mount(node, { focus: '[data-act="daily"]' });
+  mount(node, { focus: homeVisited ? 'h1' : null });
+  homeVisited = true;
   if (done) startCountdown(node);
 }
 
@@ -506,7 +515,7 @@ function onSubmit() {
     } else {
       setFeedback('So close \u2014 check your spelling', 'near');
     }
-    input.select();
+    input.setSelectionRange(input.value.length, input.value.length);
     return;
   }
   if (res.message === 'already-tried') {
@@ -676,7 +685,7 @@ function showReveal(round, { instant = false } = {}) {
 
 function sparkleScreen(tierId) {
   if (reducedMotion()) return;
-  const host = $('.rv-result', screen);
+  const host = $('.rv-tier', screen);
   if (!host) return;
   const layer = document.createElement('div');
   layer.className = 'sparkles';
@@ -835,7 +844,7 @@ async function onShare() {
   const o = typeof outcome === 'string' ? outcome : (outcome ? 'copied' : 'failed');
   if (o === 'shared') toast('Shared');
   else if (o === 'copied') toast('Copied!');
-  else toast('Not shared');
+  else if (o !== 'cancelled') toast('Not shared');
 }
 
 async function fallbackShare(text) {
