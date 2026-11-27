@@ -124,9 +124,19 @@ export function damerauLevenshtein(a, b, max = Infinity) {
 
 /** Edits allowed for an auto-accepted (corrected) typo, by target length (letters only). */
 export function typoAllowance(len) {
-  if (len <= 3) return 0;
+  if (len <= 4) return 0; // 4-letter words are too often other real words ("book" vs "Bock")
   if (len <= 7) return 1;
   return 2;
+}
+
+/**
+ * Allowance for a specific answer form. Short aliases (< 8 letters) must match exactly
+ * (plural folding still applies): one typo away from a short nickname is too easy to hit by
+ * accident ("sea donkey" vs "sea monkey"; "black" vs the bread alias "brack").
+ */
+function formAllowance(form) {
+  if (form.isAlias && form.len < 8) return 0;
+  return typoAllowance(form.len);
 }
 
 /** Max distance still treated as a near miss, by target length. */
@@ -279,9 +289,11 @@ export function matchAnswer(input, indexOrPrompt) {
     if (f) return acceptResult(index, f, inCompact, 'order');
   }
 
-  // 4. fuzzy: best distance per answer
-  const best = new Map(); // ai -> {d, form}
+  // 4. fuzzy: best distance per answer, plus the best form that is eligible for auto-accept
+  //    (within its typo allowance and sharing the input's first letter).
+  const best = new Map(); // ai -> {d, form, elig: {d, form} | null}
   let bestD = Infinity;
+  const first = inCompact[0];
   for (const form of index.forms) {
     const thr = nearThreshold(form.len);
     if (Math.abs(form.len - inLen) > thr) continue;
@@ -291,8 +303,12 @@ export function matchAnswer(input, indexOrPrompt) {
       if (d2 < d) d = d2;
     }
     if (d > thr) continue;
-    const prev = best.get(form.ai);
-    if (!prev || d < prev.d) best.set(form.ai, { d, form });
+    let entry = best.get(form.ai);
+    if (!entry) { entry = { d, form, elig: null }; best.set(form.ai, entry); }
+    else if (d < entry.d) { entry.d = d; entry.form = form; }
+    if (d <= formAllowance(form) && form.first === first && (!entry.elig || d < entry.elig.d)) {
+      entry.elig = { d, form };
+    }
     if (d < bestD) bestD = d;
   }
 
@@ -301,12 +317,10 @@ export function matchAnswer(input, indexOrPrompt) {
     for (const [ai, v] of best) if (v.d === bestD) tied.push({ ai, ...v });
     tied.sort((x, y) => index.answers[y.ai].pop - index.answers[x.ai].pop || x.ai - y.ai);
     const top = tied[0];
-    const allowed = typoAllowance(top.form.len);
-    if (bestD <= allowed && tied.length === 1 && inLen >= 4
-        && top.form.first === inCompact[0]) {
-      return acceptResult(index, top.form, inCompact, 'typo', bestD);
+    if (tied.length === 1 && top.elig && inLen >= 4) {
+      return acceptResult(index, top.elig.form, inCompact, 'typo', top.elig.d);
     }
-    if (tied.length > 1 && bestD <= allowed) {
+    if (tied.length > 1 && bestD <= typoAllowance(top.form.len)) {
       return nearResult(index, top.form, input, bestD, 'ambiguous');
     }
   }

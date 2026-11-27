@@ -235,8 +235,18 @@ describe('matchAnswer: typo tolerance', () => {
     ok('mitchell', EXPLOIT, 'Mitchell');
     ok('michelle', EXPLOIT, 'Michelle');
   });
-  test('typo against an alias', () => {
-    ok('elbowz', PASTA, 'Macaroni');
+  test('typo against a long alias is accepted, against a short alias only near', () => {
+    ok('bowtie pastta', PASTA, 'Farfalle');
+    ok('elbow macaronni', PASTA, 'Macaroni');
+    const r = matchAnswer('elbowz', buildIndex(PASTA));
+    assert.equal(r.kind, 'near');
+    assert.equal(r.target.name, 'Macaroni');
+  });
+  test('short alias one edit from a common word is not accepted (alias trap)', () => {
+    const bread = { id: 'b', answers: [['Barmbrack', 1, 'brack'], ['Bagel', 50]] };
+    assert.notEqual(kind('black', bread), 'accept');
+    ok('brack', bread, 'Barmbrack');
+    ok('bagle', bread, 'Bagel');
   });
 });
 
