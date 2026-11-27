@@ -54,8 +54,9 @@ function makeGame(state, prompts) {
 
     /**
      * Submit a guess. Returns:
-     *  { match, message, round?, mask?, nearCount?, strikes, strikesLeft, ignored? }
-     * message: 'accepted' | 'corrected' | 'close' | 'close-hint' | 'not-found' |
+     *  { match, message, round?, heat?, nearCount?, strikes, strikesLeft, ignored? }
+     * heat (near misses only): 'hot' | 'warm' | 'tepid' — how close, never which letters.
+     * message: 'accepted' | 'corrected' | 'close' | 'closer' | 'partial' | 'not-found' |
      *          'already-tried' | 'strike-out' | 'empty' | 'ignored'
      */
     submit(input, elapsedMs = 0) {
@@ -81,13 +82,15 @@ function makeGame(state, prompts) {
       }
 
       if (match.kind === 'near') {
+        // Never leak letters, length or the target itself to the UI: only how warm the guess is.
         const name = match.target.name;
         const count = (state.nearMisses[name] || 0) + 1;
         state.nearMisses[name] = count;
-        const hint = count >= 2;
-        const out = { ...match, mask: hint ? match.mask : null };
+        const heat = heatFor(match);
+        const out = { kind: 'near', reason: match.reason, heat };
         state.guesses.push({ input: raw, kind: 'near' });
-        return { match: out, mask: out.mask, nearCount: count, message: hint ? 'close-hint' : 'close', strikes: state.strikes, strikesLeft: game.strikesLeft() };
+        const message = match.reason === 'partial' ? 'partial' : (count >= 2 ? 'closer' : 'close');
+        return { match: out, heat, nearCount: count, message, strikes: state.strikes, strikesLeft: game.strikesLeft() };
       }
 
       // 'none': a strike, unless this exact (normalized) guess already cost one
@@ -248,3 +251,12 @@ export function gameFromJSON(obj, PROMPTS) {
 export const Game = Object.freeze({ create: createGame, fromJSON: gameFromJSON });
 createGame.fromJSON = gameFromJSON;
 
+
+/** How close a near miss is, as a coarse band. Reveals nothing about the answer's spelling. */
+export function heatFor(match) {
+  const len = Math.max(1, String(match.form || match.target?.name || '').replace(/[^\p{L}\p{N}]/gu, '').length);
+  const r = (match.distance ?? len) / len;
+  if (r <= 0.15) return 'hot';
+  if (r <= 0.3) return 'warm';
+  return 'tepid';
+}

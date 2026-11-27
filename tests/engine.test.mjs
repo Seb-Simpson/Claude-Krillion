@@ -236,19 +236,19 @@ describe('game', () => {
     assert.equal(r.ignored, true);
     assert.equal(g.strikes(), 0);
   });
-  test('near miss: no strike, hint only on 2nd near miss of the same target', () => {
+  test('near miss: no strike, warmth only — never letters, length or the target', () => {
     const g = newGame();
     const r1 = g.submit('spogetty', 1000);
     assert.equal(r1.match.kind, 'near');
     assert.equal(r1.message, 'close');
-    assert.equal(r1.mask, null);
-    assert.equal(r1.match.mask, null);
+    assert.ok(['hot', 'warm', 'tepid'].includes(r1.heat));
+    for (const leak of ['mask', 'target', 'form', 'distance']) assert.equal(r1.match[leak], undefined, leak);
+    assert.equal(r1.mask, undefined);
+    assert.ok(!JSON.stringify(r1).toLowerCase().includes('spaghetti'));
     assert.equal(g.strikes(), 0);
     const r2 = g.submit('spagety', 2000); // still Spaghetti, different spelling
     assert.equal(r2.match.kind, 'near');
-    assert.equal(r2.message, 'close-hint');
-    assert.equal(typeof r2.mask, 'string');
-    assert.match(r2.mask, /^S /);
+    assert.equal(r2.message, 'closer');
     assert.equal(g.state.nearMisses.Spaghetti, 2);
     assert.equal(g.strikes(), 0);
     assert.equal(g.state.status, 'playing');
