@@ -9,6 +9,8 @@ function normalize(str) {
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
     .replace(/&/g, ' and ')
+    .replace(/\+\+/g, ' plus plus ')
+    .replace(/(^|[^a-z0-9])([a-z])#/g, '$1$2 sharp')
     .replace(/[^a-z0-9\s]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
@@ -53,7 +55,7 @@ test('every category is used', () => {
 for (const p of PROMPTS) {
   test(`prompt ${p.id}`, () => {
     assert.equal(typeof p.prompt, 'string');
-    assert.match(p.prompt, /^Name (a|an) /, `${p.id}: prompt should start "Name a/an"`);
+    assert.match(p.prompt, /^Name (a|an|something|someone) /, `${p.id}: prompt should start "Name a/an/something"`);
     assert.ok(CATEGORIES.includes(p.category), `${p.id}: unknown category ${p.category}`);
     assert.ok(Array.isArray(p.answers), `${p.id}: answers array`);
     assert.ok(p.answers.length >= 40, `${p.id}: only ${p.answers.length} answers`);

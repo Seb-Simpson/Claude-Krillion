@@ -33,11 +33,10 @@ for genre research.
 - **Input**: one text field. On Enter:
   - **accepted** → round ends, tier + points revealed (shows canonical spelling if corrected).
   - **near miss** (close to a valid answer but not confident) → NOT accepted, does NOT cost a
-    strike, timer keeps running. 1st near miss on a target: "So close — check your spelling".
-    2nd+ near miss on the same target: a masked hint is shown, e.g. `S P _ G H _ T T I`
-    (letters the player typed correctly in position are revealed; the answer is never
-    auto-filled). The player must type it themselves. This is the "correction without
-    giving the answer" system.
+    strike, timer keeps running. The player only learns how warm the guess was
+    (`tepid` / `warm` / `hot`) — never letters, length or the answer. Typing one word of a
+    multi-word answer says "be more specific". This is the "correction without giving the
+    answer" system. (An earlier masked-letter hint was removed as too revealing.)
   - **not on list** → "Not on our list" shake; costs 1 strike. **3 strikes** → round ends, 0 pts.
   - Empty input is ignored.
 - **Time out** → 0 points, tier `miss`.

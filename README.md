@@ -30,10 +30,13 @@ npm start            # python3 -m http.server 8080
 | Decoy | the "famous obscure" answer everyone reaches for | 5 | 🟫 |
 | Miss | no valid answer | 0 | ⬛ |
 
-**Spelling help without giving the answer away:** small typos are auto-corrected. If you're close but
-not close enough, you're told to check your spelling. Miss again and you get a masked hint showing
-only the letters you already had right (`S P _ G H _ T T I`). You still have to type it yourself.
-A wrong answer costs one of your three strikes. A near miss doesn't.
+**Spelling help without giving the answer away:** small typos are auto-corrected (*spagetti* → Spaghetti).
+If you're close but not close enough, a heat gauge tells you how warm you are — *Lukewarm*, *Warm* or
+*Scorching* — without revealing a single letter. A wrong answer costs one of your three strikes;
+a near miss doesn't.
+
+**Database:** 161 prompts across 14 categories and over 15,000 answers, each with an estimated
+popularity, plus a hand-picked Outlier answer and "decoy" traps per prompt.
 
 ## Project layout
 

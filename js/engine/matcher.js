@@ -32,6 +32,8 @@ export function normalize(str, { keepArticle = false } = {}) {
   s = s.normalize('NFD').replace(/[̀-ͯ]/g, '');
   s = s.replace(SPECIAL_RE, (c) => SPECIAL_LETTERS[c]);
   s = s.replace(/&/g, ' and ');
+  // Keep programming-language names distinct: "C++" / "C#" must not collapse to "C".
+  s = s.replace(/\+\+/g, ' plus plus ').replace(/(^|[^a-z0-9])([a-z])#/g, '$1$2 sharp');
   s = s.replace(/['’‘`´]/g, '');
   s = s.replace(/[^a-z0-9]+/g, ' ').trim();
   if (!s) return '';
