@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Outlier Sound Lab</title>
+<style>
+  :root {
+    --bg: #f6f5f2; --panel: #ffffff; --ink: #1d1c1a; --muted: #6b6862;
+    --line: #e2dfd8; --accent: #e8702a; --btn: #f1efea; --btn-hover: #e7e3db;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141413; --panel: #1e1d1b; --ink: #f1efe9; --muted: #a29e95;
+      --line: #34322e; --btn: #2a2926; --btn-hover: #36342f;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px 16px 48px; background: var(--bg); color: var(--ink);
+    font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 760px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  p.sub { margin: 0 0 20px; color: var(--muted); }
+  .bar {
+    display: flex; flex-wrap: wrap; gap: 16px; align-items: center;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    padding: 12px 16px; margin-bottom: 20px;
+  }
+  .bar label { display: flex; align-items: center; gap: 8px; }
+  .meter { flex: 1 1 160px; min-width: 140px; display: flex; align-items: center; gap: 8px; font-variant-numeric: tabular-nums; color: var(--muted); font-size: 13px; }
+  .meter .track { flex: 1; height: 8px; background: var(--btn); border-radius: 4px; overflow: hidden; }
+  .meter .fill { height: 100%; width: 0; background: var(--accent); transition: width 60ms linear; }
+  section { margin-bottom: 18px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 8px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+  button {
+    font: inherit; color: inherit; background: var(--btn); border: 1px solid var(--line);
+    border-radius: 10px; padding: 10px 12px; cursor: pointer; text-align: left;
+  }
+  button:hover { background: var(--btn-hover); }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button[aria-pressed="true"] { border-color: var(--accent); }
+  .score { display: flex; align-items: center; gap: 8px; margin-top: 8px; color: var(--muted); font-size: 13px; }
+  footer { color: var(--muted); font-size: 13px; margin-top: 24px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Outlier Sound Lab</h1>
+  <p class="sub">Audition every procedural sound in <code>js/audio/sound.js</code>. Everything is synthesised live with Web Audio.</p>
+
+  <div class="bar">
+    <label>Volume <input id="vol" type="range" min="0" max="1" step="0.01" value="0.8"></label>
+    <button id="mute" type="button" aria-pressed="false">Mute: off</button>
+    <button id="amb" type="button" aria-pressed="false">Ambience: off</button>
+    <div class="meter" title="Output peak"><span>Peak</span><div class="track"><div class="fill" id="fill"></div></div><span id="db">–∞ dB</span></div>
+  </div>
+
+  <div id="groups"></div>
+
+  <div class="score">
+    <label for="score">complete score</label>
+    <input id="score" type="range" min="0" max="700" step="10" value="420">
+    <output id="scoreOut">420</output>
+  </div>
+
+  <footer>Context: <span id="state">not started</span> · tip: hold a key in the text box to hear the <code>type</code> rate limit.
+    <input id="typebox" type="text" placeholder="type here…" aria-label="Typing test" style="margin-left:8px;font:inherit;padding:4px 8px;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--ink)">
+  </footer>
+</main>
+
+<script type="module">
+  import * as S from './js/audio/sound.js';
+
+  const GROUPS = {
+    'Interface': ['click', 'start', 'submit', 'type', 'share', 'roundNext', 'reveal'],
+    'Timer': ['tick', 'tickUrgent', 'timeout'],
+    'Feedback': ['near', 'reject', 'pass'],
+    'Accept (by rarity)': ['accept-crowd', 'accept-common', 'accept-uncommon', 'accept-rare',
+      'accept-obscure', 'accept-outlier', 'accept-decoy'],
+    'Celebration': ['streak', 'complete'],
+  };
+
+  const root = document.getElementById('groups');
+  const score = document.getElementById('score');
+  for (const [title, names] of Object.entries(GROUPS)) {
+    const sec = document.createElement('section');
+    sec.innerHTML = `<h2>${title}</h2><div class="grid"></div>`;
+    const grid = sec.querySelector('.grid');
+    for (const name of names) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'snd';
+      b.dataset.sound = name;
+      b.textContent = name;
+      b.addEventListener('click', () => {
+        S.unlock();
+        S.play(name, name === 'complete' ? { score: Number(score.value) } : name === 'streak' ? { count: 7 } : undefined);
+      });
+      grid.appendChild(b);
+    }
+    root.appendChild(sec);
+  }
+
+  const missing = S.SOUND_NAMES.filter((n) => !Object.values(GROUPS).flat().includes(n));
+  if (missing.length) console.warn('Sounds not shown in lab:', missing);
+
+  score.addEventListener('input', () => { document.getElementById('scoreOut').textContent = score.value; });
+  document.getElementById('vol').addEventListener('input', (e) => S.setVolume(Number(e.target.value)));
+
+  const muteBtn = document.getElementById('mute');
+  muteBtn.addEventListener('click', () => {
+    S.setMuted(!S.isMuted());
+    muteBtn.setAttribute('aria-pressed', String(S.isMuted()));
+    muteBtn.textContent = `Mute: ${S.isMuted() ? 'on' : 'off'}`;
+  });
+
+  let ambOn = false;
+  const ambBtn = document.getElementById('amb');
+  ambBtn.addEventListener('click', () => {
+    S.unlock();
+    ambOn = !ambOn;
+    ambOn ? S.startAmbience() : S.stopAmbience();
+    ambBtn.setAttribute('aria-pressed', String(ambOn));
+    ambBtn.textContent = `Ambience: ${ambOn ? 'on' : 'off'}`;
+  });
+
+  document.getElementById('typebox').addEventListener('keydown', (e) => {
+    if (e.key.length === 1 || e.key === 'Backspace') S.play('type');
+    if (e.key === 'Enter') S.play('submit');
+  });
+
+  // Peak meter (held peak, decays slowly). window.__maxPeak is read by tests.
+  window.__maxPeak = 0;
+  let held = 0;
+  const fill = document.getElementById('fill');
+  const dbEl = document.getElementById('db');
+  const stateEl = document.getElementById('state');
+  (function loop() {
+    const m = S._meter();
+    window.__maxPeak = Math.max(window.__maxPeak, m.peak);
+    held = Math.max(m.peak, held * 0.92);
+    fill.style.width = `${Math.min(100, held * 100)}%`;
+    dbEl.textContent = held > 0.0001 ? `${(20 * Math.log10(held)).toFixed(1)} dB` : '–∞ dB';
+    stateEl.textContent = m.state;
+    requestAnimationFrame(loop);
+  })();
+</script>
+</body>
+</html>
