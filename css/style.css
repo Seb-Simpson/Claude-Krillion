@@ -369,11 +369,6 @@ b { font-weight: 650; }
 .go svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
 .dock-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; min-height: 44px; }
-.strikes { display: flex; gap: 7px; padding-left: 4px; }
-.strikes i { width: 11px; height: 11px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--rule-2); transition: background-color .2s ease, box-shadow .2s ease, transform .2s var(--ease); }
-.strikes i { position: relative; }
-.strikes i.on { background: var(--urgent); box-shadow: 0 0 8px color-mix(in srgb, var(--urgent) 50%, transparent); }
-.strikes i.on::after { content: ''; position: absolute; left: 50%; top: -1px; width: 1.5px; height: 13px; margin-left: -.75px; background: var(--paper); transform: rotate(32deg); border-radius: 1px; }
 .dock-hint { flex: 1; font-size: 13px; color: var(--ink-3); text-align: center; }
 @media (hover: none) { .dock-hint { visibility: hidden; } }
 .relaxed .dock-hint { visibility: visible; }
@@ -680,6 +675,123 @@ b { font-weight: 650; }
 .timer.is-dead .timer-num { color: var(--urgent); }
 @keyframes drain { to { stroke-dashoffset: 100; opacity: .2; } }
 .timer, .pdot { will-change: transform; }
+
+/* ------------------------------------------------------------------ */
+/* Guess tokens                                                        */
+/* ------------------------------------------------------------------ */
+.tokens { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--ink-2); padding-left: 2px; }
+.tokens-row { display: inline-flex; gap: 6px; }
+.tokens-row i { position: relative; width: 14px; height: 14px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--rule-2); }
+.tokens-row b { position: absolute; inset: 0; border-radius: 50%; background: var(--ink); will-change: transform, opacity; }
+.tokens-row i.spent b { opacity: 0; }
+.tokens-row i.spent { box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--spend, var(--rule-2)) 55%, var(--rule)); }
+.tokens-row i.spent::after {
+  content: ''; position: absolute; left: 50%; top: -2px; width: 1.5px; height: 18px; margin-left: -.75px;
+  background: var(--spend, var(--ink-3)); opacity: .75; border-radius: 1px; transform: rotate(38deg);
+}
+.tokens-row i.crack::after { animation: crack-in .3s ease-out both; }
+@keyframes crack-in { from { transform: rotate(38deg) scaleY(0); } }
+.tokens-n { min-width: 1ch; color: var(--ink); font-weight: 750; font-size: 15px; }
+.tokens.is-last .tokens-n { color: var(--urgent); }
+.answer-form::after {
+  content: ''; position: absolute; inset: -4px; border-radius: 20px; pointer-events: none;
+  box-shadow: 0 0 0 2px var(--urgent), 0 0 22px color-mix(in srgb, var(--urgent) 40%, transparent);
+  opacity: 0;
+}
+.answer-form.is-last::after { animation: last-pulse 1.05s ease-in-out infinite; }
+@keyframes last-pulse { 0%, 100% { opacity: 0; } 50% { opacity: .85; } }
+.feedback.fb-last { color: var(--urgent); font-weight: 750; }
+.guesses li.g-near { text-decoration: none; color: var(--ink-2); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--heat-warm) 55%, transparent); background: color-mix(in srgb, var(--heat-warm) 8%, var(--paper-2)); }
+.strike-demo i:last-child { background: none; }
+
+/* ------------------------------------------------------------------ */
+/* The Drift                                                           */
+/* ------------------------------------------------------------------ */
+:root {
+  --drift-dust: #8f98ab;
+  --drift-deep: linear-gradient(180deg, rgb(176 190 216 / .5), rgb(141 158 196 / .62));
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --drift-dust: #d6dbff;
+    --drift-deep:
+      radial-gradient(1.2px 1.2px at 12% 18%, rgb(255 255 255 / .55) 50%, transparent 52%),
+      radial-gradient(1px 1px at 33% 64%, rgb(255 255 255 / .4) 50%, transparent 52%),
+      radial-gradient(1.4px 1.4px at 58% 28%, rgb(220 225 255 / .5) 50%, transparent 52%),
+      radial-gradient(1px 1px at 76% 82%, rgb(255 255 255 / .35) 50%, transparent 52%),
+      radial-gradient(1.2px 1.2px at 88% 12%, rgb(255 255 255 / .5) 50%, transparent 52%),
+      radial-gradient(1px 1px at 6% 90%, rgb(255 255 255 / .35) 50%, transparent 52%),
+      radial-gradient(1px 1px at 47% 46%, rgb(200 210 255 / .35) 50%, transparent 52%),
+      linear-gradient(180deg, #121331, #0b0b1c);
+    --drift-size: 340px 340px, 260px 260px, 420px 420px, 300px 300px, 380px 380px, 280px 280px, 520px 520px, 100% 100%;
+  }
+}
+:root[data-theme="dark"] {
+  --drift-dust: #d6dbff;
+  --drift-deep:
+    radial-gradient(1.2px 1.2px at 12% 18%, rgb(255 255 255 / .55) 50%, transparent 52%),
+    radial-gradient(1px 1px at 33% 64%, rgb(255 255 255 / .4) 50%, transparent 52%),
+    radial-gradient(1.4px 1.4px at 58% 28%, rgb(220 225 255 / .5) 50%, transparent 52%),
+    radial-gradient(1px 1px at 76% 82%, rgb(255 255 255 / .35) 50%, transparent 52%),
+    radial-gradient(1.2px 1.2px at 88% 12%, rgb(255 255 255 / .5) 50%, transparent 52%),
+    radial-gradient(1px 1px at 6% 90%, rgb(255 255 255 / .35) 50%, transparent 52%),
+    radial-gradient(1px 1px at 47% 46%, rgb(200 210 255 / .35) 50%, transparent 52%),
+    linear-gradient(180deg, #121331, #0b0b1c);
+    --drift-size: 340px 340px, 260px 260px, 420px 420px, 300px 300px, 380px 380px, 280px 280px, 520px 520px, 100% 100%;
+}
+.app { position: relative; z-index: 1; }
+.drift-tint {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none; opacity: 0;
+  background: var(--drift-deep); background-size: var(--drift-size, 100% 100%);
+  will-change: opacity;
+}
+
+.drift-host { flex: none; position: relative; margin-bottom: 4px; }
+.drift { position: relative; }
+.drift-view { position: relative; min-width: 0; border-radius: 14px; background: color-mix(in srgb, var(--ink) 3%, transparent); box-shadow: inset 0 0 0 1px var(--rule); }
+.drift canvas { display: block; width: 100%; height: 100%; border-radius: inherit; }
+.drift-count { display: grid; justify-items: end; line-height: 1; flex: none; }
+.drift-n { font: 750 22px var(--sans); letter-spacing: -0.02em; }
+.drift-u { font-size: 12px; font-weight: 600; color: var(--ink-2); margin-top: 3px; }
+
+.drift-h.drift-band { display: flex; align-items: center; gap: 12px; height: 56px; }
+.drift-h.drift-band .drift-view { flex: 1; height: 100%; }
+.drift-h.drift-band .drift-count { min-width: 44px; }
+
+.drift-host.is-rail {
+  position: fixed; z-index: 2; margin: 0;
+  top: 110px; bottom: 110px; left: calc(50% + 280px + 44px); width: 170px;
+}
+.drift-v { height: 100%; display: flex; flex-direction: column-reverse; gap: 12px; }
+.drift-v .drift-view { flex: 1; }
+.drift-v .drift-count { justify-items: start; padding-left: 4px; }
+.drift-v .drift-n { font-size: 30px; }
+
+.drift-full .drift-view { height: 150px; }
+.drift-full .drift-count { display: none; }
+
+.drift-banner {
+  position: absolute; left: 50%; top: 7px; z-index: 3; pointer-events: none;
+  display: flex; align-items: center; gap: 8px; white-space: nowrap;
+  padding: 7px 14px 7px 10px; border-radius: 999px;
+  background: var(--ink); color: var(--paper); font: 650 13px/1.1 var(--sans);
+  box-shadow: 0 8px 24px -8px rgb(0 0 0 / .45);
+  opacity: 0; transform: translate(-50%, -10px); will-change: transform, opacity;
+}
+.drift-v .drift-banner { top: 38%; }
+.db-star { width: 9px; height: 9px; border-radius: 50%; background: var(--t-outlier); box-shadow: 0 0 0 3px color-mix(in srgb, var(--t-outlier) 30%, transparent), 0 0 12px var(--t-outlier); }
+.db-v { opacity: .6; font-weight: 600; }
+
+.sum-drift { margin: 22px 0 0; }
+.sum-drift-cap { display: flex; justify-content: space-between; align-items: center; font-size: 14px; color: var(--ink-2); font-weight: 600; margin-bottom: 6px; }
+.btn-replay { min-height: 34px; padding: 0 12px; font-size: 14px; }
+@media (max-width: 599px) {
+  .sum-drift .drift-view { border-radius: 0; box-shadow: inset 0 1px 0 var(--rule), inset 0 -1px 0 var(--rule); margin: 0 calc(var(--gutter) * -1); }
+}
+
+.drift-demo { position: relative; display: flex; align-items: center; gap: 3px; height: 20px; }
+.drift-demo i { width: 5px; height: 5px; border-radius: 50%; background: var(--crowd); }
+.drift-demo b { position: absolute; right: 2px; width: 9px; height: 9px; border-radius: 50%; background: var(--t-outlier); }
 
 /* ------------------------------------------------------------------ */
 /* Wider screens                                                       */

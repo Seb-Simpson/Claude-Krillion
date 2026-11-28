@@ -4,6 +4,7 @@ import { $, $$, esc, html, sleep, fmtDate, fmtCountdown, countUp, flash, toast, 
 import { heroField, revealField, constellation, setTierRing } from './dots.js';
 import { ICON, openDialog, closeAll, howToPlay, statsDialog, statsPanel, settingsDialog, tierChip } from './dialogs.js';
 import * as fx from './fx.js';
+import { createDrift, setTint } from './drift.js';
 
 const ROUND_MS = 25000;
 const READ_IN_MS = 1200;
@@ -32,6 +33,7 @@ const FLAME = '<svg viewBox="0 0 16 20" aria-hidden="true"><path d="M8 1c.6 3.2 
 let ctx;
 let screen;           // #screen element
 let session = null;   // current game session
+let drift = null;     // active Drift track (game or summary)
 let clock = null;     // running round clock
 let countdownTimer = null;
 let homeVisited = false;
@@ -155,6 +157,7 @@ function topbar({ back = false, title = '' } = {}) {
 function mount(node, { focus } = {}) {
   stopClock();
   clearInterval(countdownTimer);
+  drift?.destroy(); drift = null;
   screen.replaceChildren(node);
   scrollTo(0, 0);
   screen.onclick = onScreenClick;
@@ -180,6 +183,7 @@ function onScreenClick(e) {
     next: () => onNext(),
     share: () => onShare(),
     again: () => startPractice(),
+    replay: () => { const node = $('.summary', screen); const d = summaryData(); if (node && session?.replaySteps) replayDrift(node, session.replaySteps, d.score); },
   };
   handlers[act]?.();
 }
@@ -215,6 +219,7 @@ function resultScore(r) {
 
 function renderHome() {
   session = null;
+  setTint(0);
   const day = today();
   const done = dailyResult(day);
   let inprog = null;
@@ -349,6 +354,21 @@ function progressDots() {
   return `<ol class="progress" aria-label="Progress">${items.join('')}</ol>`;
 }
 
+/** Persistent Drift track on game + reveal screens (band on phones, rail on wide desktops). */
+function mountDrift(node) {
+  const rail = matchMedia('(min-width: 1100px)').matches;
+  drift = createDrift({
+    orient: rail ? 'v' : 'h', size: 'band', seed: `drift-${session.mode}-${session.day ?? session.set}`,
+    onMilestone: () => { sfx('streak', { count: 0 }); haptic(20); },
+  });
+  const host = $('.drift-host', node);
+  host.classList.toggle('is-rail', rail);
+  host.appendChild(drift.el);
+  const score = session.game.totalScore();
+  drift.set(score);
+  setTint(score, { instant: true });
+}
+
 function modeLabel() {
   if (session.mode === 'daily') return `Puzzle ${session.day}`;
   if (session.mode === 'archive') return `Archive · Puzzle ${session.day}`;
@@ -368,6 +388,7 @@ function renderRound({ revealOnly = false } = {}) {
         ${progressDots()}
         <span class="play-count num" aria-label="Prompt ${st.roundIndex + 1} of 7">${st.roundIndex + 1}<span class="of">/7</span></span>
       </header>
+      <div class="drift-host"></div>
       <div class="play-stage">
         <div class="q">
           <div class="q-head">
@@ -397,13 +418,14 @@ function renderRound({ revealOnly = false } = {}) {
           <button type="submit" class="go" aria-label="Submit answer" data-silent>${ICON.enter}</button>
         </form>
         <div class="dock-foot">
-          <span class="strikes" aria-label="Strikes: 0 of 3"><i></i><i></i><i></i></span>
+          <span class="tokens" role="img" aria-label="3 guesses left"><span class="tokens-label">Guesses</span><span class="tokens-row"><i><b></b></i><i><b></b></i><i><b></b></i></span><span class="tokens-n num">3</span></span>
           <span class="dock-hint">${relaxed ? 'Relaxed mode: no clock' : 'Press Enter to answer'}</span>
           <button class="btn-text" data-act="pass" data-silent>Pass</button>
         </div>
       </div>
     </section>`);
   mount(node, { focus: '#answer' });
+  mountDrift(node);
   if (revealOnly) { showReveal(st.rounds[st.roundIndex], { instant: false }); return; }
 
   const input = $('#answer', node);
@@ -420,8 +442,8 @@ function renderRound({ revealOnly = false } = {}) {
   });
   form.addEventListener('submit', (e) => { e.preventDefault(); onSubmit(); });
   // Restore guesses that already cost a strike (resumed rounds).
-  for (const gu of st.guesses || []) if (gu.kind === 'none') addGuessChip(gu.input);
-  updateStrikes();
+  for (const gu of st.guesses || []) if (gu.kind === 'none' || gu.kind === 'near') addGuessChip(gu.input, gu.kind);
+  updateTokens();
   startClock(relaxed, Math.min(ROUND_MS - 3000, Number(st.elapsedMs) || 0));
 }
 
@@ -491,13 +513,42 @@ function elapsedMs() {
 }
 
 /* ---------------- input handling ---------------- */
-function updateStrikes({ crack = false } = {}) {
-  const n = session.game.strikes();
-  const el = $('.strikes', screen);
+/** Guess tokens: 3 per prompt, spent one by one (drain, crack, fall away). */
+function updateTokens({ spend = null } = {}) {
+  const used = session.game.strikes();
+  const left = Math.max(0, STRIKES - used);
+  const el = $('.tokens', screen);
   if (!el) return;
-  $$('i', el).forEach((pip, i) => pip.classList.toggle('on', i < n));
-  if (crack && n > 0) { const pip = $$('i', el)[n - 1]; if (pip) { flash(pip, 'crack'); fx.pop(pip, { from: 1.8, peak: 0.8, ms: 360 }); } }
-  el.setAttribute('aria-label', `Strikes: ${n} of ${STRIKES}`);
+  const toks = $$('.tokens-row i', el);
+  toks.forEach((t, i) => { if (i < used) t.classList.add('spent'); });
+  $('.tokens-n', el).textContent = String(left);
+  el.setAttribute('aria-label', `${left} ${left === 1 ? 'guess' : 'guesses'} left`);
+  el.classList.toggle('is-last', left === 1);
+  if (spend && used > 0) {
+    const t = toks[used - 1];
+    if (t) {
+      t.style.setProperty('--spend', spend);
+      const b = $('b', t);
+      if (reducedMotion()) b.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 250, fill: 'forwards' });
+      else {
+        b.animate([
+          { transform: 'scale(1)', background: spend, opacity: 1 },
+          { transform: 'scale(1.35)', background: spend, opacity: 1, offset: 0.22 },
+          { transform: 'scale(.9) rotate(0deg)', background: spend, opacity: 1, offset: 0.45 },
+          { transform: 'translateY(16px) rotate(50deg) scale(.6)', background: spend, opacity: 0 },
+        ], { duration: 640, easing: 'cubic-bezier(.4,.1,.6,1)', fill: 'forwards' });
+        flash(t, 'crack');
+      }
+    }
+    fx.pop($('.tokens-n', el), { from: 1.6, peak: 0.85, ms: 380 });
+  }
+  $('.answer-form', screen)?.classList.toggle('is-last', left === 1 && session.game.state.status === 'playing');
+}
+
+function guessesLeftText(left) {
+  if (left <= 0) return 'Out of guesses';
+  if (left === 1) return 'Last guess!';
+  return `${left} guesses left`;
 }
 
 function setFeedback(text, kind = '') {
@@ -522,28 +573,36 @@ function onSubmit() {
     acceptFx(input, value, res.round);
     return endRound(res.round, { delay: reducedMotion() ? 350 : 900, keepDock: true });
   }
-  if (m.kind === 'near') {
-    showHeat(input, res);
-    return;
-  }
   if (res.message === 'already-tried') {
-    setFeedback('You already tried that one. No strike.', 'reject');
+    setFeedback('Already tried \u2014 that one\u2019s free.', 'near');
     flash(input, 'nudge');
     input.select();
     return;
   }
-  // none: a strike
+  if (m.kind === 'near') {
+    addGuessChip(value, 'near');
+    showHeat(input, res);
+    updateTokens({ spend: fx.cssVar(`--heat-${res.heat || 'warm'}`) });
+    if (res.round) {
+      // Out of guesses on a near miss: let the heat register, then end the round.
+      const word = (HEAT[res.heat]?.text || 'Close').split(' \u2014')[0];
+      setFeedback(`${word} \u2014 but you\u2019re out of guesses`, 'reject');
+      return endRound(res.round, { delay: reducedMotion() ? 600 : 1300 });
+    }
+    return;
+  }
+  // none: uses a guess
   sfx('reject');
   haptic(fx.HAPTIC.reject);
   fx.shake($('.answer-form', screen), { amp: 9, ms: 420 });
   flash(input, 'is-reject');
   fx.vignette(fx.cssVar('--urgent', '#c2410c'));
   clearHeat();
-  addGuessChip(value);
-  updateStrikes({ crack: true });
-  if (res.round) { setFeedback('Three strikes. Round over.', 'reject'); return endRound(res.round, { delay: 750 }); }
+  addGuessChip(value, 'none');
+  updateTokens({ spend: fx.cssVar('--urgent', '#c2410c') });
+  if (res.round) { setFeedback('Not on our list. Out of guesses.', 'reject'); return endRound(res.round, { delay: 800 }); }
   const left = STRIKES - session.game.strikes();
-  setFeedback(`Not on our list. ${left} ${left === 1 ? 'strike' : 'strikes'} left.`, 'reject');
+  setFeedback(`Not on our list. ${guessesLeftText(left)}`, left === 1 ? 'last' : 'reject');
   input.value = '';
 }
 
@@ -569,9 +628,10 @@ function showHeat(input, res) {
   }
   input.dataset.heat = heat;
   flash(input, 'is-near');
+  const left = STRIKES - session.game.strikes();
   let msg = partial ? 'Be more specific \u2014 that\u2019s only part of an answer' : text;
-  if (closer && !partial) msg += '. Still no strike.';
-  setFeedback(msg, 'near');
+  if (left > 0) msg += `. ${guessesLeftText(left)}`;
+  setFeedback(msg, left === 1 ? 'last' : 'near');
   input.setSelectionRange(input.value.length, input.value.length);
 }
 
@@ -616,14 +676,19 @@ function acceptFx(input, value, round) {
     // progress dot fills with the tier colour and pops
     const dot = $$('.pdot', screen)[session.game.state.roundIndex];
     if (dot) { dot.style.setProperty('--c', `var(--t-${tierId})`); dot.classList.add('is-done'); dot.classList.remove('is-current'); fx.pop(dot, { peak: 1.8 }); }
+    // The Drift: your dot travels outward by the points just earned.
+    const total = session.game.totalScore();
+    drift?.travelTo(total, tierId);
+    setTint(total);
     setFeedback('', '');
   }, hitStop);
 }
 
-function addGuessChip(text) {
+function addGuessChip(text, kind = 'none') {
   const ul = $('.guesses', screen);
   if (!ul) return;
   const li = document.createElement('li');
+  li.className = `g-${kind}`;
   li.textContent = text;
   ul.appendChild(li);
 }
@@ -654,6 +719,7 @@ function onTimeout() {
 
 async function endRound(round, { delay = 260, keepDock = false } = {}) {
   stopClock();
+  $('.answer-form', screen)?.classList.remove('is-last');
   const input = $('#answer', screen);
   if (input) { if (keepDock) input.readOnly = true; else input.disabled = true; }
   $$('.dock button', screen).forEach((b) => { b.disabled = true; });
@@ -691,7 +757,7 @@ function showReveal(round, { instant = false } = {}) {
   const list = (arr) => arr.map((a) => `<li class="${mine(a) ? 'is-mine' : ''}"><span>${esc(a.name)}</span><span class="pop num">${pct(a.pop)}</span></li>`).join('');
 
   const endedText = {
-    timeout: 'Out of time.', pass: 'You passed.', strikes: 'Three strikes.',
+    timeout: 'Out of time.', pass: 'You passed.', strikes: 'Out of guesses.',
   }[round.endedBy] || 'No answer.';
 
   const decoyHit = round.tierId === 'decoy' && answer;
@@ -725,7 +791,7 @@ function showReveal(round, { instant = false } = {}) {
         <div class="rv-tier">${tierChip(tier)}<span class="rv-pts"><span class="plus">+</span><span class="num" data-pts>0</span></span></div>
         <p class="rv-blurb">${decoyHit
           ? `<b>${esc(answer.name)}</b> is the answer people reach for when they’re trying to be clever${answer.pop != null ? `, about ${pct(answer.pop)} of people say it` : ''}. Rare-sounding, but not rare.`
-          : esc(answer ? tier.blurb || BLURBS[round.tierId] || '' : (round.endedBy === 'strikes' ? 'Three answers that weren’t on our list.' : BLURBS.miss))}</p>
+          : esc(answer ? tier.blurb || BLURBS[round.tierId] || '' : (round.endedBy === 'strikes' ? 'Three guesses, none on our list.' : BLURBS.miss))}</p>
       </div>
       ${others}
     </div>`);
@@ -841,7 +907,7 @@ function renderSummary({ fresh }) {
     const a = asAnswer(r.answer);
     return `<li class="round-row">
         <span class="rr-n num">${i + 1}</span>
-        <span class="rr-main"><span class="rr-q">${esc(p?.prompt || '')}</span><span class="rr-a${a ? '' : ' is-miss'}">${a ? esc(a.name) : esc({ timeout: 'Out of time', pass: 'Passed', strikes: 'Three strikes' }[r.endedBy] || 'No answer')}</span></span>
+        <span class="rr-main"><span class="rr-q">${esc(p?.prompt || '')}</span><span class="rr-a${a ? '' : ' is-miss'}">${a ? esc(a.name) : esc({ timeout: 'Out of time', pass: 'Passed', strikes: 'Out of guesses' }[r.endedBy] || 'No answer')}</span></span>
         ${tierChip(t)}
         <span class="rr-pts num">${r.points}</span>
       </li>`;
@@ -859,6 +925,9 @@ function renderSummary({ fresh }) {
         ${session.streakUp ? `<p class="streak-pill"><span class="num">${session.streakUp}</span>-day streak</p>` : ''}
       </div>
       <ol class="strip" aria-label="Tier for each prompt">${strip}</ol>
+      <figure class="sum-drift">
+        <figcaption class="sum-drift-cap"><span>Your drift</span><button class="btn-text btn-replay" data-act="replay">Replay</button></figcaption>
+      </figure>
       <figure class="sum-figure" aria-label="Your seven answers plotted by rarity: the further from the centre, the rarer"></figure>
       <div class="sum-actions">
         ${canShare ? `<button class="btn btn-primary btn-lg" data-act="share" data-silent>${ICON.share}<span>Share result</span></button>` : `<button class="btn btn-primary btn-lg" data-act="again">Play another set</button>`}
@@ -879,23 +948,50 @@ function renderSummary({ fresh }) {
   mount(node, { focus: 'h1' });
   if (isDaily) startCountdown(node);
 
+  // The Drift: retrace today's journey away from the crowd.
+  drift = createDrift({ orient: 'h', size: 'full', seed: `drift-sum-${session.day ?? session.set}`, onMilestone: () => sfx('streak', { count: 0 }) });
+  $('.sum-drift', node).appendChild(drift.el);
+  const total = $('[data-total]', node);
+  const steps = [];
+  rounds.reduce((acc, r) => { const v = acc + (r.points || 0); steps.push({ score: v, tierId: r.tierId }); return v; }, 0);
+  session.replaySteps = steps;
+
   if (fresh) {
-    const total = $('[data-total]', node);
-    let lastStep = 0;
-    const dur = reducedMotion() ? 0 : 600 + Math.min(1100, score * 1.8);
-    countUp(total, score, {
-      ms: dur,
-      onStep: (v) => { const step = Math.floor(v / 60); if (step > lastStep) { lastStep = step; sfx('tick'); } },
-    }).then(() => {
-      sfx('complete', { score });
-      fx.pop($('.sum-score', node), { from: 1, peak: 1.07, ms: 420 });
-      const c = fx.center(total);
-      const colors = rounds.map((r) => fx.tierColor(r.tierId)).filter((_, i, a) => a.indexOf(_) === i);
-      fx.burst(c.x, c.y, { colors, count: 18 + Math.round(score / 9), speed: 5 + score / 140, life: 1100, size: 3 });
-      fx.shockwave(c.x, c.y, { color: fx.tierColor(score >= 420 ? 'outlier' : 'rare'), r0: 30, r1: 120 + score / 4, width: 3, dur: 800 });
-      if (session?.streakUp) setTimeout(() => sfx('streak', { count: session.streakUp }), 500);
-    });
+    total.textContent = '0';
+    drift.set(0);
+    setTint(0, { instant: true });
+    setTimeout(() => replayDrift(node, steps, score, { flourish: true }), reducedMotion() ? 0 : 450);
+  } else {
+    drift.set(score);
+    setTint(score, { instant: true });
   }
+}
+
+let replaying = false;
+async function replayDrift(node, steps, score, { flourish = false } = {}) {
+  if (!drift || replaying) return;
+  replaying = true;
+  const total = $('[data-total]', node);
+  let lastStep = 0;
+  setTint(score);
+  await drift.replay(steps, {
+    onProgress: (v) => {
+      total.textContent = String(Math.round(v));
+      const step = Math.floor(v / 60);
+      if (step > lastStep) { lastStep = step; sfx('tick'); }
+    },
+  });
+  replaying = false;
+  if (!node.isConnected) return;
+  total.textContent = String(score);
+  sfx('complete', { score });
+  fx.pop($('.sum-score', node), { from: 1, peak: 1.07, ms: 420 });
+  if (!flourish) return;
+  const c = fx.center(total);
+  const colors = steps.map((st) => fx.tierColor(st.tierId)).filter((x, i, a) => a.indexOf(x) === i);
+  fx.burst(c.x, c.y, { colors, count: 18 + Math.round(score / 9), speed: 5 + score / 140, life: 1100, size: 3 });
+  fx.shockwave(c.x, c.y, { color: fx.tierColor(score >= 420 ? 'outlier' : 'rare'), r0: 30, r1: 120 + score / 4, width: 3, dur: 800 });
+  if (session?.streakUp) setTimeout(() => sfx('streak', { count: session.streakUp }), 500);
 }
 
 async function onShare() {
@@ -932,6 +1028,7 @@ async function fallbackShare(text) {
 /* =================================================================== */
 function renderArchive() {
   session = null;
+  setTint(0);
   const now = today();
   const first = Math.max(0, ctx.daily.dayNumber(new Date(`${ctx.daily.EPOCH}T00:00:00`)));
   const max = ctx.MAX_SCORE || 700;
