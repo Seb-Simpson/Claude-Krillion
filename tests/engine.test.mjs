@@ -236,7 +236,7 @@ describe('game', () => {
     assert.equal(r.ignored, true);
     assert.equal(g.strikes(), 0);
   });
-  test('near miss: no strike, warmth only — never letters, length or the target', () => {
+  test('near miss: uses a guess, warmth only — never letters, length or the target', () => {
     const g = newGame();
     const r1 = g.submit('spogetty', 1000);
     assert.equal(r1.match.kind, 'near');
@@ -245,12 +245,14 @@ describe('game', () => {
     for (const leak of ['mask', 'target', 'form', 'distance']) assert.equal(r1.match[leak], undefined, leak);
     assert.equal(r1.mask, undefined);
     assert.ok(!JSON.stringify(r1).toLowerCase().includes('spaghetti'));
-    assert.equal(g.strikes(), 0);
+    assert.equal(g.strikes(), 1);
+    assert.equal(g.submit('spogetty', 1500).message, 'already-tried', 'identical re-submit is free');
+    assert.equal(g.strikes(), 1);
     const r2 = g.submit('spagety', 2000); // still Spaghetti, different spelling
     assert.equal(r2.match.kind, 'near');
     assert.equal(r2.message, 'closer');
     assert.equal(g.state.nearMisses.Spaghetti, 2);
-    assert.equal(g.strikes(), 0);
+    assert.equal(g.strikes(), 2);
     assert.equal(g.state.status, 'playing');
     // then a correct answer
     assert.equal(g.submit('spaghetti', 3000).round.tierId, 'crowd');
@@ -296,6 +298,16 @@ describe('game', () => {
     assert.equal(g.strikes(), 0);
     assert.deepEqual(g.state.nearMisses, {});
     assert.deepEqual(g.state.guesses, []);
+  });
+  test('three guesses total: near misses count toward the limit', () => {
+    const g = newGame();
+    g.submit('spogetty', 1);
+    g.submit('xylophone', 2);
+    const r = g.submit('spagety', 3);
+    assert.equal(r.message, 'strike-out');
+    assert.equal(r.round.endedBy, 'strikes');
+    assert.equal(r.round.points, 0);
+    assert.equal(g.state.status, 'round-over');
   });
   test('game ends after the last round', () => {
     const g = newGame();

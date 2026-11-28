@@ -15,6 +15,12 @@ import bodyHealth from './categories/body-health.js';
 import artsCulture from './categories/arts-culture.js';
 import gamesToys from './categories/games-toys.js';
 import tech from './categories/tech.js';
+import spaceAstronomy from './categories/space-astronomy.js';
+import mythologyBelief from './categories/mythology-belief.js';
+import booksLiterature from './categories/books-literature.js';
+import transport from './categories/transport.js';
+import jobsWork from './categories/jobs-work.js';
+import fashionStyle from './categories/fashion-style.js';
 
 export const CATEGORIES = [
   'Food & Drink',
@@ -31,6 +37,12 @@ export const CATEGORIES = [
   'Arts & Culture',
   'Games & Toys',
   'Tech',
+  'Space & Astronomy',
+  'Mythology & Belief',
+  'Books & Literature',
+  'Transport',
+  'Jobs & Work',
+  'Fashion & Style',
 ];
 
 export const PROMPTS = [
@@ -48,4 +60,10 @@ export const PROMPTS = [
   ...artsCulture,
   ...gamesToys,
   ...tech,
+  ...spaceAstronomy,
+  ...mythologyBelief,
+  ...booksLiterature,
+  ...transport,
+  ...jobsWork,
+  ...fashionStyle,
 ];

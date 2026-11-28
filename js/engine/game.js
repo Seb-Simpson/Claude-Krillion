@@ -81,6 +81,16 @@ function makeGame(state, prompts) {
         return { match, round, message: match.via === 'typo' ? 'corrected' : 'accepted', strikes: state.strikes, strikesLeft: game.strikesLeft() };
       }
 
+      // Every guess that isn't accepted uses one of MAX_STRIKES (3) guesses — near misses included.
+      // Re-submitting the exact same (normalized) guess is free.
+      if (state.guesses.some((g) => g.kind !== 'accept' && keyOf(g.input) === k)) {
+        return { match: match.kind === 'near' ? { kind: 'near', reason: match.reason, heat: heatFor(match) } : match,
+          message: 'already-tried', repeat: true, strikes: state.strikes, strikesLeft: game.strikesLeft() };
+      }
+      state.strikes += 1;
+      const outOfGuesses = state.strikes >= MAX_STRIKES;
+      const endIfOut = () => endRound(prompt, { input: raw, answer: null, tierId: 'miss', points: 0, ms: elapsedMs, endedBy: 'strikes' });
+
       if (match.kind === 'near') {
         // Never leak letters, length or the target itself to the UI: only how warm the guess is.
         const name = match.target.name;
@@ -89,19 +99,16 @@ function makeGame(state, prompts) {
         const heat = heatFor(match);
         const out = { kind: 'near', reason: match.reason, heat };
         state.guesses.push({ input: raw, kind: 'near' });
+        if (outOfGuesses) {
+          return { match: out, heat, nearCount: count, round: endIfOut(), message: 'strike-out', strikes: state.strikes, strikesLeft: 0 };
+        }
         const message = match.reason === 'partial' ? 'partial' : (count >= 2 ? 'closer' : 'close');
         return { match: out, heat, nearCount: count, message, strikes: state.strikes, strikesLeft: game.strikesLeft() };
       }
 
-      // 'none': a strike, unless this exact (normalized) guess already cost one
-      if (state.guesses.some((g) => g.kind === 'none' && keyOf(g.input) === k)) {
-        return { match, message: 'already-tried', repeat: true, strikes: state.strikes, strikesLeft: game.strikesLeft() };
-      }
-      state.strikes += 1;
       state.guesses.push({ input: raw, kind: 'none' });
-      if (state.strikes >= MAX_STRIKES) {
-        const round = endRound(prompt, { input: raw, answer: null, tierId: 'miss', points: 0, ms: elapsedMs, endedBy: 'strikes' });
-        return { match, round, message: 'strike-out', strikes: state.strikes, strikesLeft: 0 };
+      if (outOfGuesses) {
+        return { match, round: endIfOut(), message: 'strike-out', strikes: state.strikes, strikesLeft: 0 };
       }
       return { match, message: 'not-found', strikes: state.strikes, strikesLeft: game.strikesLeft() };
     },
