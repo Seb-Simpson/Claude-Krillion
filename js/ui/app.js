@@ -180,6 +180,7 @@ function onScreenClick(e) {
     archive: () => renderArchive(),
     'archive-day': () => startArchive(Number(b.dataset.day)),
     pass: () => onPass(),
+    confirm: () => onConfirm(),
     next: () => onNext(),
     share: () => onShare(),
     again: () => startPractice(),
@@ -417,6 +418,7 @@ function renderRound({ revealOnly = false } = {}) {
           <input id="answer" class="answer" type="text" inputmode="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="go" maxlength="60" placeholder="Type an answer" aria-describedby="feedback">
           <button type="submit" class="go" aria-label="Submit answer" data-silent>${ICON.enter}</button>
         </form>
+        <div class="suggest" role="status" aria-live="polite" hidden></div>
         <div class="dock-foot">
           <span class="tokens" role="img" aria-label="3 guesses left"><span class="tokens-label">Guesses</span><span class="tokens-row"><i><b></b></i><i><b></b></i><i><b></b></i></span><span class="tokens-n num">3</span></span>
           <span class="dock-hint">${relaxed ? 'Relaxed mode: no clock' : 'Press Enter to answer'}</span>
@@ -439,6 +441,7 @@ function renderRound({ revealOnly = false } = {}) {
     }
     lastLen = input.value.length;
     input.classList.remove('is-near', 'is-reject');
+    hideSuggestion();
   });
   form.addEventListener('submit', (e) => { e.preventDefault(); onSubmit(); });
   // Restore guesses that already cost a strike (resumed rounds).
@@ -569,6 +572,11 @@ function onSubmit() {
   try { res = session.game.submit(value, ms); } catch (err) { console.error(err); return; }
   const m = res.match || { kind: 'none' };
 
+  if (res.message === 'suggest' && res.suggestion) {
+    showSuggestion(input, res);
+    return;
+  }
+  hideSuggestion();
   if (m.kind === 'accept' && res.round) {
     acceptFx(input, value, res.round);
     return endRound(res.round, { delay: reducedMotion() ? 350 : 900, keepDock: true });
@@ -633,6 +641,41 @@ function showHeat(input, res) {
   if (left > 0) msg += `. ${guessesLeftText(left)}`;
   setFeedback(msg, left === 1 ? 'last' : 'near');
   input.setSelectionRange(input.value.length, input.value.length);
+}
+
+/** "Did you mean …?" — a clear spelling slip. Costs no guess; Enter (same text) or Yes confirms. */
+function showSuggestion(input, res) {
+  const el = $('.suggest', screen);
+  if (!el) return;
+  sfx('near');
+  haptic(8);
+  clearHeat();
+  setFeedback('', '');
+  if (res.heat) input.dataset.heat = res.heat;
+  el.innerHTML = `<span class="sg-text">Did you mean <b>${esc(res.suggestion)}</b>?</span>
+    <span class="sg-key" aria-hidden="true"><kbd class="kbd">\u23ce Enter</kbd> to confirm</span>
+    <button type="button" class="sg-yes" data-act="confirm" data-silent>Yes</button>`;
+  el.hidden = false;
+  el.classList.remove('sg-in');
+  void el.offsetWidth;
+  el.classList.add('sg-in');
+  input.setSelectionRange(input.value.length, input.value.length);
+}
+
+function hideSuggestion() {
+  const el = $('.suggest', screen);
+  if (el && !el.hidden) { el.hidden = true; el.innerHTML = ''; }
+}
+
+function onConfirm() {
+  const input = $('#answer', screen);
+  if (!input || !clock || !session.game.pendingSuggestion?.()) return;
+  let res;
+  try { res = session.game.confirm(elapsedMs()); } catch (err) { console.error(err); return; }
+  if (!res?.round) return;
+  hideSuggestion();
+  acceptFx(input, input.value.trim(), res.round);
+  endRound(res.round, { delay: reducedMotion() ? 350 : 900, keepDock: true });
 }
 
 function clearHeat() {
