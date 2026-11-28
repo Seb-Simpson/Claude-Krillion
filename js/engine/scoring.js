@@ -58,6 +58,9 @@ export function findAnswer(answerName, prompt) {
   return null;
 }
 
+/** Decoys only apply below this popularity (i.e. never to Common or Crowd Pleaser answers). */
+export const DECOY_MAX_POP = 25;
+
 /**
  * Tier for an accepted answer on a prompt, with precedence gem > decoy > pop.
  * `answerName` may be a string or an {name} object. Unknown answers → miss.
@@ -67,8 +70,10 @@ export function tierForAnswer(answerName, prompt) {
   const k = key(name);
   if (!k || !prompt) return BY_ID.get('miss');
   if (prompt.gem && key(prompt.gem) === k) return BY_ID.get('outlier');
-  if ((prompt.decoys || []).some((d) => key(d) === k)) return BY_ID.get('decoy');
   const row = findAnswer(name, prompt);
+  // A decoy is a "famous obscure" trap. An answer most people would name (pop ≥ 25) is
+  // never penalised as a decoy, whatever the data says — it simply scores by popularity.
+  if (row && row.pop < DECOY_MAX_POP && (prompt.decoys || []).some((d) => key(d) === k)) return BY_ID.get('decoy');
   if (!row) return BY_ID.get('miss');
   return tierForPop(row.pop);
 }

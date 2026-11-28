@@ -61,6 +61,11 @@ describe('scoring', () => {
       [10, 'uncommon'], [9, 'rare'], [4, 'rare'], [3, 'obscure'], [1, 'obscure'], [3.5, 'obscure']];
     for (const [pop, id] of cases) assert.equal(tierForPop(pop).id, id, `pop ${pop}`);
   });
+  test('a popular answer listed as a decoy is never penalised (pop ≥ 25 scores by pop)', () => {
+    const P = { gem: 'Zed', decoys: ['Big', 'Mid'], answers: [['Big', 90], ['Mid', 24], ['Zed', 1]] };
+    assert.equal(tierForAnswer('Big', P).id, 'crowd');
+    assert.equal(tierForAnswer('Mid', P).id, 'decoy');
+  });
   test('tierForAnswer precedence gem > decoy > pop', () => {
     assert.equal(tierForAnswer('Strozzapreti', PASTA).id, 'outlier');
     assert.equal(tierForAnswer('Orecchiette', PASTA).id, 'decoy');
