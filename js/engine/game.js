@@ -18,6 +18,29 @@ function freshRoundState(state) {
   state.nearMisses = {};
   state.guesses = [];
   state.elapsedMs = 0;
+  state.pending = null; // a "Did you mean …?" suggestion awaiting confirmation
+}
+
+/** Letters/digits only, for measuring how big a typo is relative to the answer. */
+const lettersLen = (s) => String(s || '').replace(/[^\p{L}\p{N}]/gu, '').length;
+
+/**
+ * Offer "Did you mean X?" only for a genuine spelling slip: a single unambiguous candidate,
+ * within ~30% of its letters, same first letter, and never for prefixes or partial (one-word-of-many) inputs —
+ * those would hand the player an answer they didn't really know.
+ */
+export function suggestionFor(match, rawInput) {
+  if (!match || match.kind !== 'near' || match.reason !== 'typo') return null;
+  const len = lettersLen(match.form || match.target?.name);
+  if (lettersLen(rawInput) < 4 || len < 4) return null;
+  if (match.distance > Math.max(1, Math.round(len * 0.3))) return null;
+  const compact = (t) => normalize(t).replace(/ /g, '');
+  const inC = compact(rawInput);
+  const tC = compact(match.form || match.target.name);
+  if (inC[0] !== tC[0]) return null;
+  // No auto-completing: a truncated start ("spaghe") or a much shorter input gets no suggestion.
+  if (tC.startsWith(inC) || inC.length < tC.length * 0.7) return null;
+  return { name: match.target.name, pop: match.target.pop };
 }
 
 function makeGame(state, prompts) {
@@ -57,7 +80,8 @@ function makeGame(state, prompts) {
      *  { match, message, round?, heat?, nearCount?, strikes, strikesLeft, ignored? }
      * heat (near misses only): 'hot' | 'warm' | 'tepid' — how close, never which letters.
      * message: 'accepted' | 'corrected' | 'close' | 'closer' | 'partial' | 'not-found' |
-     *          'already-tried' | 'strike-out' | 'empty' | 'ignored'
+     *          'suggest' | 'confirmed' | 'already-tried' | 'strike-out' | 'empty' | 'ignored'
+     * 'suggest' carries `suggestion` (answer name); submitting the same text again, or confirm(), accepts it.
      */
     submit(input, elapsedMs = 0) {
       if (state.status !== 'playing') {
@@ -68,6 +92,10 @@ function makeGame(state, prompts) {
       if (!k) {
         return { match: null, message: 'empty', ignored: true, strikes: state.strikes, strikesLeft: game.strikesLeft() };
       }
+      // Pressing Enter again on the same text confirms a pending "Did you mean …?".
+      if (state.pending && state.pending.key === k) return game.confirm(elapsedMs);
+      state.pending = null;
+
       const prompt = prompts[state.roundIndex];
       const match = matchAnswer(raw, buildIndex(prompt));
 
@@ -87,6 +115,14 @@ function makeGame(state, prompts) {
         return { match: match.kind === 'near' ? { kind: 'near', reason: match.reason, heat: heatFor(match) } : match,
           message: 'already-tried', repeat: true, strikes: state.strikes, strikesLeft: game.strikesLeft() };
       }
+      // A clear spelling slip gets a suggestion to confirm, and costs no guess.
+      const suggestion = suggestionFor(match, raw);
+      if (suggestion) {
+        state.pending = { key: k, input: raw, answer: suggestion };
+        return { match: { kind: 'near', reason: match.reason, heat: heatFor(match), suggestion: suggestion.name },
+          heat: heatFor(match), suggestion: suggestion.name, message: 'suggest', strikes: state.strikes, strikesLeft: game.strikesLeft() };
+      }
+
       state.strikes += 1;
       const outOfGuesses = state.strikes >= MAX_STRIKES;
       const endIfOut = () => endRound(prompt, { input: raw, answer: null, tierId: 'miss', points: 0, ms: elapsedMs, endedBy: 'strikes' });
@@ -111,6 +147,27 @@ function makeGame(state, prompts) {
         return { match, round: endIfOut(), message: 'strike-out', strikes: state.strikes, strikesLeft: 0 };
       }
       return { match, message: 'not-found', strikes: state.strikes, strikesLeft: game.strikesLeft() };
+    },
+
+    /** The pending suggestion's answer name, or null. */
+    pendingSuggestion() {
+      return state.pending ? state.pending.answer.name : null;
+    },
+
+    /** Accept the pending "Did you mean …?" suggestion (Enter / Yes). Returns a submit-style result. */
+    confirm(elapsedMs = state.elapsedMs) {
+      if (state.status !== 'playing' || !state.pending) return null;
+      const { input, answer } = state.pending;
+      const prompt = prompts[state.roundIndex];
+      const tier = tierForAnswer(answer.name, prompt);
+      state.pending = null;
+      state.guesses.push({ input, kind: 'accept' });
+      const round = endRound(prompt, {
+        input, answer: { ...answer }, tierId: tier.id, points: tier.points,
+        ms: elapsedMs, endedBy: 'accept', corrected: true,
+      });
+      return { match: { kind: 'accept', answer: { ...answer }, corrected: true, via: 'confirm' }, round,
+        message: 'confirmed', strikes: state.strikes, strikesLeft: game.strikesLeft() };
     },
 
     /** Round timer ran out. Returns the RoundResult, or null if not playing. */

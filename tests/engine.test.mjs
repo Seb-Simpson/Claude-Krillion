@@ -6,7 +6,8 @@ import {
 import {
   EPOCH, dayNumber, dateForDay, promptsForDay, randomPrompts, msUntilNextDay, mulberry32, hashString,
 } from '../js/engine/daily.js';
-import { createGame, Game } from '../js/engine/game.js';
+import { createGame, Game, suggestionFor } from '../js/engine/game.js';
+import { matchAnswer } from '../js/engine/matcher.js';
 import * as storage from '../js/engine/storage.js';
 import { shareText, shareResult } from '../js/engine/share.js';
 import * as all from '../js/engine/index.js';
@@ -238,24 +239,55 @@ describe('game', () => {
   });
   test('near miss: uses a guess, warmth only — never letters, length or the target', () => {
     const g = newGame();
-    const r1 = g.submit('spogetty', 1000);
+    const r1 = g.submit('aspagetty', 1000); // close-ish, but wrong first letter → no suggestion
     assert.equal(r1.match.kind, 'near');
     assert.equal(r1.message, 'close');
+    assert.equal(r1.suggestion, undefined);
     assert.ok(['hot', 'warm', 'tepid'].includes(r1.heat));
-    for (const leak of ['mask', 'target', 'form', 'distance']) assert.equal(r1.match[leak], undefined, leak);
-    assert.equal(r1.mask, undefined);
+    for (const leak of ['mask', 'target', 'form', 'distance', 'suggestion']) assert.equal(r1.match[leak], undefined, leak);
     assert.ok(!JSON.stringify(r1).toLowerCase().includes('spaghetti'));
     assert.equal(g.strikes(), 1);
-    assert.equal(g.submit('spogetty', 1500).message, 'already-tried', 'identical re-submit is free');
+    assert.equal(g.submit('aspagetty', 1500).message, 'already-tried', 'identical re-submit is free');
     assert.equal(g.strikes(), 1);
-    const r2 = g.submit('spagety', 2000); // still Spaghetti, different spelling
+    const r2 = g.submit('xspaghet', 2000);
     assert.equal(r2.match.kind, 'near');
     assert.equal(r2.message, 'closer');
     assert.equal(g.state.nearMisses.Spaghetti, 2);
     assert.equal(g.strikes(), 2);
     assert.equal(g.state.status, 'playing');
-    // then a correct answer
     assert.equal(g.submit('spaghetti', 3000).round.tierId, 'crowd');
+  });
+  test('did-you-mean: clear slips get a free suggestion, Enter on the same text confirms', () => {
+    const g = newGame();
+    const r = g.submit('spogetty', 1000);
+    assert.equal(r.message, 'suggest');
+    assert.equal(r.suggestion, 'Spaghetti');
+    assert.equal(g.strikes(), 0, 'a suggestion costs no guess');
+    assert.equal(g.pendingSuggestion(), 'Spaghetti');
+    const c = g.submit('  Spogetty ', 1200); // same text again = confirm
+    assert.equal(c.message, 'confirmed');
+    assert.equal(c.round.answer.name, 'Spaghetti');
+    assert.equal(c.round.tierId, 'crowd');
+    assert.equal(c.round.corrected, true);
+    assert.equal(g.state.status, 'round-over');
+  });
+  test('did-you-mean: confirm() accepts; typing something else drops the suggestion', () => {
+    const g = newGame();
+    g.submit('oreciete', 500);
+    assert.equal(g.pendingSuggestion(), 'Orecchiette');
+    const r = g.submit('xylophone', 600); // ignore suggestion, new guess judged normally
+    assert.equal(r.message, 'not-found');
+    assert.equal(g.pendingSuggestion(), null);
+    assert.equal(g.confirm(700), null, 'nothing pending');
+    g.submit('oreciete', 800);
+    const c = g.confirm(900);
+    assert.equal(c.round.tierId, 'decoy');
+  });
+  test('did-you-mean is never offered for prefixes, partials, short inputs or a different first letter', () => {
+    const p = { answers: [['Spaghetti', 80], ['Audrey Hepburn', 20], ['Penne', 50]] };
+    for (const s of ['spaghe', 'hepburn', 'pen', 'aspaghetti']) {
+      assert.equal(suggestionFor(matchAnswer(s, p), s), null, s);
+    }
   });
   test('three strikes end the round with 0 points; repeats do not cost a strike', () => {
     const g = newGame();
@@ -292,7 +324,7 @@ describe('game', () => {
   test('strikes and near misses reset between rounds', () => {
     const g = newGame();
     g.submit('xylophone', 1);
-    g.submit('spogetty', 1);
+    g.submit('aspagetty', 1);
     g.pass();
     g.next();
     assert.equal(g.strikes(), 0);
@@ -301,9 +333,9 @@ describe('game', () => {
   });
   test('three guesses total: near misses count toward the limit', () => {
     const g = newGame();
-    g.submit('spogetty', 1);
+    g.submit('aspagetty', 1);
     g.submit('xylophone', 2);
-    const r = g.submit('spagety', 3);
+    const r = g.submit('xspaghet', 3);
     assert.equal(r.message, 'strike-out');
     assert.equal(r.round.endedBy, 'strikes');
     assert.equal(r.round.points, 0);
